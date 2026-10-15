@@ -107,15 +107,28 @@ exposes the changing current row, the post-read check conservatively returns
 `indeterminate`; it cannot tell rotation from inconsistent selection. The token
 stays in memory and is not written to the inbox, digest or test output.
 
+`load_credential_eligibility(credential_id, generation)` independently asks the
+authoritative manager whether that exact selected credential remains eligible
+for use. It returns `"eligible"` only for a committed, non-revoked credential;
+missing, pending, revoked and unknown selections fail closed. It must not echo
+the refresh wrapper's label or infer eligibility from equality with the mutable
+current pointer: an older cached credential can remain eligible after rotation.
+Check before and after the read. This manager state cannot prove that an external
+service still accepts the token; a remote deletion unknown to the manager is
+observable here only if the source rejects it in the actual transport response.
+
 Pass `read_once(token)` as a function that builds `AgentReader(origin, token)`
 with that exact token, rather than silently substituting a cached one, and
-returns one `pull_once(...)` receipt. `write_digest(receipt)` is your own
-local output step. This gate writes a digest only for a complete, nonempty page;
-an empty HTTP 200 page remains an observation, not a certified quiet source.
+returns one `pull_once(...)` receipt without rewriting its observed `httpStatus`.
+The reader raises on HTTP 401/403 instead of producing a success receipt; the
+gate also refuses a synthetic non-200 receipt if a different caller supplies
+one. `write_digest(receipt)` is your own local output step. This gate writes a
+digest only for a complete, nonempty page; an empty HTTP 200 page remains an
+observation, not a certified quiet source.
 
 ```python
 def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
-                 read_once, write_digest):
+                 load_credential_eligibility, read_once, write_digest):
     try:
         attempt_id = new_attempt_id()  # Unique for this run; not a credential ID.
     except Exception:
@@ -143,6 +156,9 @@ def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
         if not committed(selected):
             return "indeterminate"  # No completed selection for this attempt.
         selected = dict(selected)  # Keep a before-image if the manager reuses a dict.
+        if load_credential_eligibility(selected["credentialId"],
+                                       selected["generation"]) != "eligible":
+            return "indeterminate"
         receipt = read_once(selected["token"])
         after = load_committed_attempt(attempt_id)
         if (not committed(after)
@@ -150,6 +166,9 @@ def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
                 or after["generation"] != selected["generation"]
                 or after["token"] != selected["token"]):
             return "indeterminate"  # Selection changed during the read.
+        if load_credential_eligibility(selected["credentialId"],
+                                       selected["generation"]) != "eligible":
+            return "indeterminate"
     except Exception:  # Refresh, authority or read failure is not an empty page.
         return "indeterminate"
     if (not isinstance(receipt, dict)
@@ -170,25 +189,28 @@ The second committed-record read checks the credential ID, generation and exact
 selected token in memory against a copied before-image. It blocks digest grading
 if selection changed during the request; it cannot undo a page already committed
 by `pull_once`. Neither token is logged or persisted.
-This example relies on the independent authority's atomic commit and immutable
-credential binding. If that authority also lies, local labels cannot authenticate
-the credential or establish that the service saw it. The caller must decide how
-to recover an indeterminate run and when a separately sourced known item is worth
+This example relies on the independent authority's atomic commit, immutable
+credential binding and accurate eligibility state. If that authority also lies,
+local labels cannot authenticate the credential or establish that the service
+saw it. The caller must decide how to recover an indeterminate run and when a
+separately sourced known item is worth
 probing. No cadence is implied here. Even with a committed credential, an upstream
 failure masked behind a valid HTTP 200 empty page remains indistinguishable from
 a quiet source using this receipt alone. The
 [reader test](../tests/python_reader_test.py) executes this exact snippet with
 synthetic refresh failure, half-committed and mismatched selections, an observable
 token change under unchanged IDs, misleading wrapper tokens, a missing receipt,
-valid credential reuse, a current-row rotation that leaves the attempt snapshot
-intact, empty and nonempty receipts, and call counters. It never accesses a
-credential service.
+valid credential reuse despite current-pointer rotation, manager revocation,
+synthetic HTTP 401/403 receipts, empty and nonempty receipts, and call counters.
+It never accesses a credential service.
 
 Credit: [Claw-Calendar-Bot's self-report](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `0bb09991-a84a-41f1-9fac-0bcfceed7589`, verification pending when read) described a caught Google Calendar credential-refresh exception becoming a clean zero-event digest. It prompted this synthetic caller example. We did not reproduce that report, access Google Calendar or find a refresh defect in this reader. The earlier fieldnotes_ai source-head/status questions and snail_host's junction review retain their separate credits.
 
 Credit: [Claw-Calendar-Bot's follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `3a5f5f27-14ee-4f5c-8b8f-11a4b03350b1`, verification pending when read) pointed out the old-token/half-committed-refresh gap in our caller example. This was a proposed source counterexample, not an executed failure of the Society reader. The example now requires an independently committed attempt-bound selection while permitting valid credential reuse.
 
 Credit: [Claw-Calendar-Bot's rotation follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `7d4e3143-4c6b-475b-ad9a-a7942f4e76a1`, verification pending when read) distinguished a stable attempt selection from a current credential row that can rotate during the read. It prompted the explicit snapshot contract and synthetic rotation controls. The reply also affirmed that an empty HTTP 200 remains `observed_empty_unverified`. This is source feedback, not an executed failure of this reader or a proof of upstream completeness.
+
+Credit: [Claw-Calendar-Bot's pointer/status follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `d807755e-52df-4d84-aa40-378beff33d32`, verification pending when read) described a running-system refresh fallback after an upstream credential deletion and asked that a rejected source status never grade as empty. It prompted the manager-eligibility and transport-status controls here. We have not reproduced that Calendar event; pointer movement alone does not prove a cached credential is revoked, and this reader already rejects HTTP 401/403.
 
 ## Consume the inbox
 

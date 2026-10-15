@@ -387,7 +387,7 @@ class ReaderTests(unittest.TestCase):
             reader.pull_once(self.client, self.root)
         self.assertEqual(error.exception.status, 302)
         self.assertFalse(any("token-sink" in route for route, _ in self.requests))
-        for code in [201, 401, 409, 429, 503]:
+        for code in [201, 401, 403, 409, 429, 503]:
             self.status, self.headers = code, {"Retry-After": "120"}
             with self.assertRaises(reader.ReaderError) as error:
                 reader.pull_once(self.client, self.root)
@@ -465,6 +465,12 @@ class CallerCredentialExampleTests(unittest.TestCase):
             ("wrong_attempt", "fresh", "synthetic-old-token",
              (committed(attempt_id="another-attempt"),), empty, "indeterminate",
              ("attempt", "acquire", "authority"), None),
+            ("revoked_before_read", "reused", "synthetic-current-token",
+             (current,), empty, "indeterminate", ("attempt", "acquire", "authority"), None),
+            ("revoked_after_read", "reused", "synthetic-current-token",
+             (current, current), nonempty, "indeterminate",
+             ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
             ("selection_changed_after_read", "fresh", "synthetic-old-token",
              (current, committed(credential_id="credential-2", generation="g2")),
              empty, "indeterminate", ("attempt", "acquire", "authority", "read", "authority"),
@@ -479,6 +485,20 @@ class CallerCredentialExampleTests(unittest.TestCase):
              "synthetic-current-token"),
             ("missing_receipt", "fresh", "synthetic-current-token", (current, current),
              None, "indeterminate", ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("raw_http_401", "fresh", "synthetic-current-token", (current, current),
+             {**empty, "httpStatus": 401}, "indeterminate",
+             ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("raw_http_403", "fresh", "synthetic-current-token", (current, current),
+             {**empty, "httpStatus": 403}, "indeterminate",
+             ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("reader_rejects_401", "fresh", "synthetic-current-token", (current,),
+             None, "indeterminate", ("attempt", "acquire", "authority", "read"),
+             "synthetic-current-token"),
+            ("reader_rejects_403", "fresh", "synthetic-current-token", (current,),
+             None, "indeterminate", ("attempt", "acquire", "authority", "read"),
              "synthetic-current-token"),
             ("fresh_empty", "fresh", "synthetic-current-token", (current, current),
              empty, "observed_empty_unverified",
@@ -504,6 +524,11 @@ class CallerCredentialExampleTests(unittest.TestCase):
             with self.subTest(name=name):
                 calls = []
                 remaining = list(authority_records)
+                eligibility_returns = list({
+                    "revoked_before_read": ("revoked",),
+                    "revoked_after_read": ("eligible", "revoked"),
+                }.get(name, ("eligible", "eligible")))
+                eligibility_calls = []
 
                 def new_attempt_id():
                     calls.append("attempt")
@@ -521,9 +546,18 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     self.assertEqual(attempt_id, "attempt-1")
                     return remaining.pop(0)
 
+                def load_credential_eligibility(credential_id, generation):
+                    eligibility_calls.append((credential_id, generation))
+                    self.assertEqual((credential_id, generation),
+                                     (authority_records[0]["credentialId"],
+                                      authority_records[0]["generation"]))
+                    return eligibility_returns.pop(0)
+
                 def read_once(token):
                     calls.append("read")
                     self.assertEqual(token, selected_token)
+                    if name in {"reader_rejects_401", "reader_rejects_403"}:
+                        raise reader.ReaderError("http_error", status=int(name[-3:]))
                     if name == "mutable_selected_record":
                         mutable_current["token"] = "synthetic-replaced-token"
                     return receipt
@@ -534,9 +568,16 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     self.assertGreater(value["processed"], 0)
 
                 self.assertEqual(guarded_pull(new_attempt_id, acquire, load_committed_attempt,
-                                              read_once, write_digest), expected)
+                                              load_credential_eligibility, read_once,
+                                              write_digest), expected)
                 self.assertEqual(tuple(calls), expected_calls)
                 self.assertEqual(len(remaining), len(authority_records) - expected_calls.count("authority"))
+                one_check = {"revoked_before_read", "selection_changed_after_read",
+                             "same_ids_token_changed_after_read", "mutable_selected_record",
+                             "reader_rejects_401", "reader_rejects_403"}
+                expected_eligibility_checks = (1 if name in one_check else
+                                               2 if "read" in expected_calls else 0)
+                self.assertEqual(len(eligibility_calls), expected_eligibility_checks)
 
         # The current credential row can rotate while this attempt's committed
         # selection remains stable. Both observations still use the old token.
@@ -544,8 +585,9 @@ class CallerCredentialExampleTests(unittest.TestCase):
                                                 (empty, "observed_empty_unverified", 0)):
             with self.subTest(rotation_result=expected):
                 calls = []
-                current_row = committed()
-                by_attempt = {"attempt-1": dict(current_row)}
+                by_attempt = {"attempt-1": committed()}
+                current_row = committed(token="synthetic-new-token",
+                                        credential_id="credential-2", generation="g2")
 
                 def acquire(attempt_id):
                     calls.append("acquire")
@@ -556,10 +598,15 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     calls.append("authority")
                     return dict(by_attempt[attempt_id])
 
+                def load_credential_eligibility(credential_id, generation):
+                    calls.append("eligibility")
+                    self.assertEqual((credential_id, generation), ("credential-1", "g1"))
+                    return "eligible"  # The old selection remains valid despite pointer rotation.
+
                 def read_once(token):
                     calls.append("read")
                     self.assertEqual(token, "synthetic-current-token")
-                    current_row.update(generation="g2", token="synthetic-rotated-token")
+                    current_row.update(generation="g3", token="synthetic-rotated-token")
                     return receipt
 
                 def write_digest(value):
@@ -567,11 +614,13 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     self.assertIs(value, receipt)
 
                 result = guarded_pull(lambda: "attempt-1", acquire,
-                                      load_committed_attempt, read_once, write_digest)
+                                      load_committed_attempt, load_credential_eligibility,
+                                      read_once, write_digest)
                 self.assertEqual(result, expected)
-                self.assertEqual(current_row["generation"], "g2")
+                self.assertEqual(current_row["generation"], "g3")
                 self.assertEqual(current_row["token"], "synthetic-rotated-token")
-                self.assertEqual(calls, ["acquire", "authority", "read", "authority"]
+                self.assertEqual(calls, ["acquire", "authority", "eligibility", "read",
+                                         "authority", "eligibility"]
                                  + ["digest"] * digest_count)
 
 
