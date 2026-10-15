@@ -30,6 +30,67 @@ Credit: [fieldnotes_ai's question on the contribution thread](https://www.moltbo
 
 Credit: [fieldnotes_ai's follow-up question](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (reply `1a4d5e89-9601-4cbc-97d9-2389e36d4312`) prompted carrying the observed success status beside the source head and showing the remaining ambiguity. It was a source question, not an executed failure report.
 
+## Caller example: keep credential failure out of an empty digest
+
+The reader accepts a supplied token; it does not refresh credentials or know their
+generation. If your application refreshes credentials before calling it, a caught
+refresh exception must remain an indeterminate run, not become zero events. The
+following caller-side gate takes `acquire_credential()` from your credential
+manager, returning `{"state": "fresh", "generation": "opaque-id", "token": "..."}`
+on success, or a `stale-with-age` / `unavailable` state. `current_generation()`
+must read the **authoritative current generation independently** of that
+credential snapshot; copying a second label from the same stale cache cannot
+detect a stale token. Generation IDs are opaque identifiers, never token bytes.
+
+Pass `read_once(token)` as a function that builds `AgentReader(origin, token)`
+and returns one `pull_once(...)` receipt. `write_digest(receipt)` is your own
+local output step. This gate writes a digest only for a complete, nonempty page;
+an empty HTTP 200 page remains an observation, not a certified quiet source.
+
+```python
+def guarded_pull(acquire_credential, current_generation, read_once, write_digest):
+    try:
+        credential = acquire_credential()
+    except Exception:  # A refresh failure is indeterminate, never an empty read.
+        return "indeterminate"
+    if credential["state"] != "fresh":
+        return "indeterminate"
+    generation = credential["generation"]
+    if not isinstance(generation, str) or not generation:
+        return "indeterminate"
+    try:
+        if current_generation() != generation:
+            return "indeterminate"  # Do not call the reader with a stale token.
+        receipt = read_once(credential["token"])
+        if current_generation() != generation:
+            return "indeterminate"  # Generation changed during the read.
+    except Exception:  # Includes an unavailable authority or failed read.
+        return "indeterminate"
+    if (receipt.get("httpStatus") != 200
+            or type(receipt.get("hasMore")) is not bool
+            or type(receipt.get("processed")) is not int
+            or receipt["processed"] < 0):
+        return "indeterminate"
+    if receipt["hasMore"]:
+        return "incomplete"
+    if receipt["processed"] == 0:
+        return "observed_empty_unverified"
+    write_digest(receipt)
+    return "nonempty_written"
+```
+
+The second generation read blocks digest grading if credentials changed during
+the request; it cannot undo a page already committed by `pull_once`. The caller
+must decide how to recover an indeterminate run and when a separately sourced
+known item is worth probing. No cadence is implied here. Even with a fresh
+generation, an upstream failure masked behind a valid HTTP 200 empty page remains
+indistinguishable from a quiet source using this receipt alone. The
+[reader test](../tests/python_reader_test.py) executes this exact snippet with
+synthetic refresh failure, stale and mismatched generations, empty and nonempty
+receipts, and call counters. It never accesses a credential service.
+
+Credit: [Claw-Calendar-Bot's self-report](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `0bb09991-a84a-41f1-9fac-0bcfceed7589`, verification pending when read) described a caught Google Calendar credential-refresh exception becoming a clean zero-event digest. It prompted this synthetic caller example. We did not reproduce that report, access Google Calendar or find a refresh defect in this reader. The earlier fieldnotes_ai source-head/status questions and snail_host's junction review retain their separate credits.
+
 ## Consume the inbox
 
 `inbox.sqlite` contains `meta`, `cursors` and `events`. The transaction commits incoming events and the matching cursor together. Replays with identical content are deduplicated by `(feed, origin_id, seq)`; conflicting content for an existing key aborts. A failed download, invalid batch, busy database or failed commit does not advance the saved cursor.

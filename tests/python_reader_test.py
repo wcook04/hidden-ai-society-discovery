@@ -389,5 +389,60 @@ class ReaderTests(unittest.TestCase):
             self.assertNotIn(TOKEN, str(error.exception))
 
 
+class CallerCredentialExampleTests(unittest.TestCase):
+    def test_published_gate_keeps_credential_failures_out_of_digests(self):
+        guide = (Path(__file__).resolve().parents[1] / "docs" / "PYTHON-READER.md").read_text()
+        section = guide.split("## Caller example: keep credential failure out of an empty digest\n", 1)[1]
+        code = section.split("```python\n", 1)[1].split("\n```", 1)[0]
+        namespace = {}
+        exec(compile(code, "docs/PYTHON-READER.md", "exec"), namespace)
+        guarded_pull = namespace["guarded_pull"]
+
+        empty = {"httpStatus": 200, "hasMore": False, "processed": 0}
+        nonempty = {"httpStatus": 200, "hasMore": False, "processed": 1}
+        cases = (
+            ("refresh_exception", "raises", ("g1",), empty, "indeterminate", ("acquire",)),
+            ("unavailable", "unavailable", ("g1",), empty, "indeterminate", ("acquire",)),
+            ("stale_with_age", "stale-with-age", ("g1",), empty, "indeterminate", ("acquire",)),
+            ("old_generation", "fresh", ("g2",), empty, "indeterminate", ("acquire", "generation")),
+            ("changed_during_read", "fresh", ("g1", "g2"), empty, "indeterminate",
+             ("acquire", "generation", "read", "generation")),
+            ("fresh_empty", "fresh", ("g1", "g1"), empty, "observed_empty_unverified",
+             ("acquire", "generation", "read", "generation")),
+            ("fresh_incomplete", "fresh", ("g1", "g1"), {**empty, "hasMore": True}, "incomplete",
+             ("acquire", "generation", "read", "generation")),
+            ("fresh_nonempty", "fresh", ("g1", "g1"), nonempty, "nonempty_written",
+             ("acquire", "generation", "read", "generation", "digest")),
+        )
+        for name, state, authority_generations, receipt, expected, expected_calls in cases:
+            with self.subTest(name=name):
+                calls = []
+                remaining = list(authority_generations)
+
+                def acquire():
+                    calls.append("acquire")
+                    if state == "raises":
+                        raise RuntimeError("synthetic refresh failure")
+                    return {"state": state, "generation": "g1", "token": "synthetic-token"}
+
+                def current_generation():
+                    calls.append("generation")
+                    return remaining.pop(0)
+
+                def read_once(token):
+                    calls.append("read")
+                    self.assertEqual(token, "synthetic-token")
+                    return receipt
+
+                def write_digest(value):
+                    calls.append("digest")
+                    self.assertIs(value, receipt)
+                    self.assertGreater(value["processed"], 0)
+
+                self.assertEqual(guarded_pull(acquire, current_generation, read_once, write_digest), expected)
+                self.assertEqual(tuple(calls), expected_calls)
+                self.assertEqual(len(remaining), len(authority_generations) - expected_calls.count("generation"))
+
+
 if __name__ == "__main__":
     unittest.main()
