@@ -400,38 +400,77 @@ class CallerCredentialExampleTests(unittest.TestCase):
 
         empty = {"httpStatus": 200, "hasMore": False, "processed": 0}
         nonempty = {"httpStatus": 200, "hasMore": False, "processed": 1}
+
+        def committed(*, token="synthetic-current-token", credential_id="credential-1",
+                      generation="g1", attempt_id="attempt-1", state="committed"):
+            return {"attemptId": attempt_id, "state": state, "credentialId": credential_id,
+                    "generation": generation, "token": token}
+
+        current = committed()
         cases = (
-            ("refresh_exception", "raises", ("g1",), empty, "indeterminate", ("acquire",)),
-            ("unavailable", "unavailable", ("g1",), empty, "indeterminate", ("acquire",)),
-            ("stale_with_age", "stale-with-age", ("g1",), empty, "indeterminate", ("acquire",)),
-            ("old_generation", "fresh", ("g2",), empty, "indeterminate", ("acquire", "generation")),
-            ("changed_during_read", "fresh", ("g1", "g2"), empty, "indeterminate",
-             ("acquire", "generation", "read", "generation")),
-            ("fresh_empty", "fresh", ("g1", "g1"), empty, "observed_empty_unverified",
-             ("acquire", "generation", "read", "generation")),
-            ("fresh_incomplete", "fresh", ("g1", "g1"), {**empty, "hasMore": True}, "incomplete",
-             ("acquire", "generation", "read", "generation")),
-            ("fresh_nonempty", "fresh", ("g1", "g1"), nonempty, "nonempty_written",
-             ("acquire", "generation", "read", "generation", "digest")),
+            # name, wrapper state, wrapper token, authority records, page, result, calls, selected token
+            ("refresh_exception", "raises", "synthetic-old-token", (), empty, "indeterminate",
+             ("attempt", "acquire"), None),
+            ("unavailable", "unavailable", "synthetic-old-token", (current,), empty, "indeterminate",
+             ("attempt", "acquire"), None),
+            ("stale_with_age", "stale-with-age", "synthetic-old-token", (current,), empty, "indeterminate",
+             ("attempt", "acquire"), None),
+            ("caught_failure_claims_fresh", "fresh", "synthetic-old-token", (None,), empty, "indeterminate",
+             ("attempt", "acquire", "authority"), None),
+            ("half_committed_refresh", "fresh", "synthetic-old-token",
+             (committed(generation="g2", token="synthetic-new-token", state="pending"),),
+             empty, "indeterminate", ("attempt", "acquire", "authority"), None),
+            ("wrong_attempt", "fresh", "synthetic-old-token",
+             (committed(attempt_id="another-attempt"),), empty, "indeterminate",
+             ("attempt", "acquire", "authority"), None),
+            ("selection_changed_after_read", "fresh", "synthetic-old-token",
+             (current, committed(credential_id="credential-2", generation="g2")),
+             empty, "indeterminate", ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("fresh_empty", "fresh", "synthetic-current-token", (current, current),
+             empty, "observed_empty_unverified",
+             ("attempt", "acquire", "authority", "read", "authority"), "synthetic-current-token"),
+            ("misleading_old_token", "fresh", "synthetic-old-token",
+             (committed(token="synthetic-new-token", generation="g2"),
+              committed(token="synthetic-new-token", generation="g2")),
+             empty, "observed_empty_unverified",
+             ("attempt", "acquire", "authority", "read", "authority"), "synthetic-new-token"),
+            ("fresh_incomplete", "fresh", "synthetic-current-token", (current, current),
+             {**empty, "hasMore": True}, "incomplete",
+             ("attempt", "acquire", "authority", "read", "authority"), "synthetic-current-token"),
+            ("reused_credential_nonempty", "reused", "synthetic-current-token", (current, current),
+             nonempty, "nonempty_written",
+             ("attempt", "acquire", "authority", "read", "authority", "digest"),
+             "synthetic-current-token"),
+            ("fresh_nonempty", "fresh", "synthetic-current-token", (current, current),
+             nonempty, "nonempty_written",
+             ("attempt", "acquire", "authority", "read", "authority", "digest"),
+             "synthetic-current-token"),
         )
-        for name, state, authority_generations, receipt, expected, expected_calls in cases:
+        for name, state, claimed_token, authority_records, receipt, expected, expected_calls, selected_token in cases:
             with self.subTest(name=name):
                 calls = []
-                remaining = list(authority_generations)
+                remaining = list(authority_records)
 
-                def acquire():
+                def new_attempt_id():
+                    calls.append("attempt")
+                    return "attempt-1"
+
+                def acquire(attempt_id):
                     calls.append("acquire")
+                    self.assertEqual(attempt_id, "attempt-1")
                     if state == "raises":
-                        raise RuntimeError("synthetic refresh failure")
-                    return {"state": state, "generation": "g1", "token": "synthetic-token"}
+                        raise RuntimeError("synthetic late refresh failure")
+                    return {"state": state, "generation": "g2", "token": claimed_token}
 
-                def current_generation():
-                    calls.append("generation")
+                def load_committed_attempt(attempt_id):
+                    calls.append("authority")
+                    self.assertEqual(attempt_id, "attempt-1")
                     return remaining.pop(0)
 
                 def read_once(token):
                     calls.append("read")
-                    self.assertEqual(token, "synthetic-token")
+                    self.assertEqual(token, selected_token)
                     return receipt
 
                 def write_digest(value):
@@ -439,9 +478,10 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     self.assertIs(value, receipt)
                     self.assertGreater(value["processed"], 0)
 
-                self.assertEqual(guarded_pull(acquire, current_generation, read_once, write_digest), expected)
+                self.assertEqual(guarded_pull(new_attempt_id, acquire, load_committed_attempt,
+                                              read_once, write_digest), expected)
                 self.assertEqual(tuple(calls), expected_calls)
-                self.assertEqual(len(remaining), len(authority_generations) - expected_calls.count("generation"))
+                self.assertEqual(len(remaining), len(authority_records) - expected_calls.count("authority"))
 
 
 if __name__ == "__main__":
