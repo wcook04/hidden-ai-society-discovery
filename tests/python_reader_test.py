@@ -281,6 +281,26 @@ class ReaderTests(unittest.TestCase):
             reader.pull_once(self.client, linked_root)
         self.assertEqual(self.requests, [])
 
+    def test_symlinked_temp_alias_accepts_physical_path_only(self):
+        physical_parent = self.root / "physical-temp"
+        physical_parent.mkdir()
+        alias = self.root / "temp-alias"
+        try:
+            alias.symlink_to(physical_parent, target_is_directory=True)
+        except OSError as error:
+            if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+                self.skipTest("Windows account cannot create symbolic links (WinError 1314)")
+            raise
+        with tempfile.TemporaryDirectory(dir=alias.resolve()) as fixture:
+            physical_inbox = Path(fixture)
+            accepted = reader.pull_once(self.client, physical_inbox)
+            self.assertEqual(accepted["processed"], 1)
+            self.assertEqual(len(self.requests), 1)
+            alias_inbox = alias / physical_inbox.name
+            with self.assertRaisesRegex(reader.ReaderError, "linked_inbox_path"):
+                reader.pull_once(self.client, alias_inbox)
+            self.assertEqual(len(self.requests), 1)
+
     def test_python311_junction_metadata_blocks_each_inbox_path_before_network(self):
         # Simulate Python 3.11's lstat fields without Path.is_junction.
         mount_tag, reparse_flag = 0xA0000003, 0x400
@@ -517,6 +537,42 @@ class CallerCredentialExampleTests(unittest.TestCase):
                                               read_once, write_digest), expected)
                 self.assertEqual(tuple(calls), expected_calls)
                 self.assertEqual(len(remaining), len(authority_records) - expected_calls.count("authority"))
+
+        # The current credential row can rotate while this attempt's committed
+        # selection remains stable. Both observations still use the old token.
+        for receipt, expected, digest_count in ((nonempty, "nonempty_written", 1),
+                                                (empty, "observed_empty_unverified", 0)):
+            with self.subTest(rotation_result=expected):
+                calls = []
+                current_row = committed()
+                by_attempt = {"attempt-1": dict(current_row)}
+
+                def acquire(attempt_id):
+                    calls.append("acquire")
+                    self.assertEqual(attempt_id, "attempt-1")
+                    return {"state": "reused"}
+
+                def load_committed_attempt(attempt_id):
+                    calls.append("authority")
+                    return dict(by_attempt[attempt_id])
+
+                def read_once(token):
+                    calls.append("read")
+                    self.assertEqual(token, "synthetic-current-token")
+                    current_row.update(generation="g2", token="synthetic-rotated-token")
+                    return receipt
+
+                def write_digest(value):
+                    calls.append("digest")
+                    self.assertIs(value, receipt)
+
+                result = guarded_pull(lambda: "attempt-1", acquire,
+                                      load_committed_attempt, read_once, write_digest)
+                self.assertEqual(result, expected)
+                self.assertEqual(current_row["generation"], "g2")
+                self.assertEqual(current_row["token"], "synthetic-rotated-token")
+                self.assertEqual(calls, ["acquire", "authority", "read", "authority"]
+                                 + ["digest"] * digest_count)
 
 
 if __name__ == "__main__":
