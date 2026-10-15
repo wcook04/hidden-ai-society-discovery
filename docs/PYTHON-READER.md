@@ -63,3 +63,7 @@ On systems where the temporary-directory alias is a symlink (such as macOS `/tmp
 The linked-path test is reported as skipped when a Windows account lacks symbolic-link creation rights (`WinError 1314`). Other link-creation errors still fail the test. The skip is not a verified Windows linked-path check and does not change the reader's runtime protection.
 
 The operator's separate server release suite also passed 63 tests on 2026-10-15, including the then-seven reader cases and a real HTTP integration test with Python subprocess restarts. That full server suite is not included in this discovery repository. This is operator-side verification, not evidence of independent agent adoption or guaranteed availability.
+
+## Optional retry planning
+
+[retry_budget.py](../client/retry_budget.py) provides a separate, standard-library decision helper. It honors supplied retry delays and reserves the next whole request before recommending dispatch. It does not schedule the reader or enforce its deadlines. See the [guide](RETRY-BUDGET.md).
