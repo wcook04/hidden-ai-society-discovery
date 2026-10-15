@@ -1,0 +1,86 @@
+{
+  "schema": "hidden-ai-society-retry-budget-vectors-v1",
+  "scope": "Pure planner decisions. No HTTP request, sleep, transport deadline, or write reconciliation is performed.",
+  "case_count": 6,
+  "decision_count": 12,
+  "cases": [
+    {
+      "id": "success_after_three_seconds",
+      "steps": [
+        {
+          "input": {"requests_started": 0, "elapsed_seconds": 0, "outcome": "ready"},
+          "expected": {"state": "READY", "remaining_requests": 4, "remaining_seconds": 30, "budget_exceeded": false, "dispatch_allowed": true, "earliest_start_seconds": 0, "wait_seconds": 0, "request_timeout_seconds": 12, "reason": "full_request_fits"}
+        },
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 3, "outcome": "valid_result", "last_request_seconds": 3},
+          "expected": {"state": "COMPLETED", "remaining_requests": 3, "remaining_seconds": 27, "budget_exceeded": false, "dispatch_allowed": false, "earliest_start_seconds": null, "wait_seconds": 0, "request_timeout_seconds": null, "reason": "caller_validated_task_result"}
+        }
+      ]
+    },
+    {
+      "id": "transient_seven_wait_two_success_four",
+      "steps": [
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 7, "outcome": "transient_read", "last_request_seconds": 7},
+          "expected": {"state": "WAIT", "remaining_requests": 3, "remaining_seconds": 23, "budget_exceeded": false, "dispatch_allowed": false, "earliest_start_seconds": 9, "wait_seconds": 2, "request_timeout_seconds": 12, "reason": "recheck_before_dispatch"}
+        },
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 9, "outcome": "ready", "not_before_seconds": 9},
+          "expected": {"state": "READY", "remaining_requests": 3, "remaining_seconds": 21, "budget_exceeded": false, "dispatch_allowed": true, "earliest_start_seconds": 9, "wait_seconds": 0, "request_timeout_seconds": 12, "reason": "full_request_fits"}
+        },
+        {
+          "input": {"requests_started": 2, "elapsed_seconds": 13, "outcome": "valid_result", "last_request_seconds": 4},
+          "expected": {"state": "COMPLETED", "remaining_requests": 2, "remaining_seconds": 17, "budget_exceeded": false, "dispatch_allowed": false, "earliest_start_seconds": null, "wait_seconds": 0, "request_timeout_seconds": null, "reason": "caller_validated_task_result"}
+        }
+      ]
+    },
+    {
+      "id": "retry_after_sixty_at_ten_defers",
+      "steps": [
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 10, "outcome": "transient_read", "last_request_seconds": 10, "retry_after_seconds": 60},
+          "expected": {"state": "DEFERRED", "remaining_requests": 3, "remaining_seconds": 20, "budget_exceeded": false, "dispatch_allowed": false, "earliest_start_seconds": 70, "wait_seconds": 0, "request_timeout_seconds": null, "reason": "wait_and_full_request_do_not_fit"}
+        }
+      ]
+    },
+    {
+      "id": "unknown_write_after_time_and_request_overrun",
+      "steps": [
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 31, "outcome": "unknown_write", "last_request_seconds": 13},
+          "expected": {"state": "RECONCILIATION_NEEDED", "remaining_requests": 3, "remaining_seconds": 0, "budget_exceeded": true, "dispatch_allowed": false, "earliest_start_seconds": null, "wait_seconds": 0, "request_timeout_seconds": null, "reason": "preserve_original_request_identity_and_body"}
+        }
+      ]
+    },
+    {
+      "id": "early_wake_keeps_absolute_not_before",
+      "steps": [
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 12, "outcome": "transient_read"},
+          "expected": {"state": "WAIT", "remaining_requests": 3, "remaining_seconds": 18, "budget_exceeded": false, "dispatch_allowed": false, "earliest_start_seconds": 14, "wait_seconds": 2, "request_timeout_seconds": 12, "reason": "recheck_before_dispatch"}
+        },
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 13, "outcome": "ready", "not_before_seconds": 14},
+          "expected": {"state": "WAIT", "remaining_requests": 3, "remaining_seconds": 17, "budget_exceeded": false, "dispatch_allowed": false, "earliest_start_seconds": 14, "wait_seconds": 1, "request_timeout_seconds": 12, "reason": "recheck_before_dispatch"}
+        },
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 14, "outcome": "ready", "not_before_seconds": 14},
+          "expected": {"state": "READY", "remaining_requests": 3, "remaining_seconds": 16, "budget_exceeded": false, "dispatch_allowed": true, "earliest_start_seconds": 14, "wait_seconds": 0, "request_timeout_seconds": 12, "reason": "full_request_fits"}
+        }
+      ]
+    },
+    {
+      "id": "full_request_reserve_boundary",
+      "steps": [
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 18, "outcome": "ready"},
+          "expected": {"state": "READY", "remaining_requests": 3, "remaining_seconds": 12, "budget_exceeded": false, "dispatch_allowed": true, "earliest_start_seconds": 18, "wait_seconds": 0, "request_timeout_seconds": 12, "reason": "full_request_fits"}
+        },
+        {
+          "input": {"requests_started": 1, "elapsed_seconds": 19, "outcome": "ready"},
+          "expected": {"state": "DEFERRED", "remaining_requests": 3, "remaining_seconds": 11, "budget_exceeded": false, "dispatch_allowed": false, "earliest_start_seconds": 19, "wait_seconds": 0, "request_timeout_seconds": null, "reason": "wait_and_full_request_do_not_fit"}
+        }
+      ]
+    }
+  ]
+}

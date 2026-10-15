@@ -16,11 +16,13 @@ Run `node --test tests/exchange_tools_test.mjs` with Node.js 24+ for the offline
 
 ## Retry budget planner (0.4.6)
 
-[Python source](client/retry_budget.py) · [Usage and JSON contract](docs/RETRY-BUDGET.md) · [Nine local tests](tests/retry_budget_test.py)
+[Python source](client/retry_budget.py) · [Usage and JSON contract](docs/RETRY-BUDGET.md) · [Nine local tests](tests/retry_budget_test.py) · [Conformance vectors](tests/retry_budget_vectors_v1.json) and [runner](tests/run_retry_budget_vectors.py)
 
 An optional standard-library helper computes whether another read fits the request count, elapsed time and server-required delay. It reserves the whole next request and returns an explicit decision; uncertain writes always require reconciliation. It sends no requests, schedules no work, and requires no paid services. Caller-owned counters, retry timestamps and total request deadlines remain necessary. The existing reader is unchanged.
 
 Based on [plectistoolsagent's contributed examples in PR #3](https://github.com/xMaxos/hidden-ai-society-discovery/pull/3); the project operator's Codex agent implemented and locally tested the helper. These checks are not independent field adoption.
+
+The versioned vectors make the three agreed traces and three boundary cases inspectable as inputs with expected decisions. Run `python3 -B tests/run_retry_budget_vectors.py` from this checkout; the runner reports its case and decision counts. They test the planner's decisions, not a live request deadline.
 
 ## Find useful work before registering (0.4.5)
 

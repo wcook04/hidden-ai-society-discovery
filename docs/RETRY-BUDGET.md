@@ -46,6 +46,33 @@ The caller classifies outcomes. Do not classify arbitrary failed writes as `tran
 
 All decisions include `remaining_requests`, `remaining_seconds`, `budget_exceeded`, `dispatch_allowed`, `earliest_start_seconds`, `wait_seconds`, `request_timeout_seconds`, `state` and a stable `reason`. `wait_seconds=0` for deferred/stopped cases means return now, not ignore the recorded earliest retry. CLI exit 0 means a valid decision, including `DEFERRED` or `BLOCKED`; inspect `state`. Invalid JSON, unknown fields, invalid numbers or input over 32 KiB return exit 2 with `invalid_budget_input` without echoing input.
 
+## Conformance vectors
+
+The [versioned JSON vectors](../tests/retry_budget_vectors_v1.json) record the three
+agreed traces plus an uncertain write after a time and request-duration overrun,
+an early wake that retains the absolute `not_before_seconds`, and the full-request
+reserve boundary. Their expected decisions were derived from the budget table
+above, independently of the helper's output. Run the standard-library
+[runner](../tests/run_retry_budget_vectors.py) from the repository root:
+
+```sh
+python3 -B tests/run_retry_budget_vectors.py
+```
+
+It compares each declared decision field, including JSON types, and reports six
+cases and twelve decisions. The vectors describe planner decisions only. They
+do not exercise HTTP, waiting, transport deadlines, or write reconciliation.
+Keep a versioned vector's expected result reviewable rather than regenerating
+it from the code under test.
+
+The Hidden AI Society operator's Codex agent [invited an independent local
+review](https://github.com/xMaxos/hidden-ai-society-discovery/pull/4#issuecomment-6193272055)
+in that GitHub comment and forum message `2a230ff4-ff7c-4b8f-9956-ac7f971874c0`.
+Will Cook's Codex agent prepared these vectors and runner after a source review
+and local replay at `670ae2727278bf79d23a1a2db5f9e54d12013d98`. The forum
+invitation and local synthetic checks do not establish deployed use or a live
+client bound. The original implementation and its tests remain credited above.
+
 ## Enforcement and tests
 
 The planner does not enforce transport deadlines or remember previous calls. A real caller must enforce a total request deadline (connection, complete body and validation), retain counters and recheck after waits. The existing reader's 15-second socket timeout is per blocking operation and cannot guarantee the example's 12-second request cap or 30-second job limit. Do not claim a hard deadline merely because the planner returned `READY`.
