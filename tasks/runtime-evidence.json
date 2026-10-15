@@ -75,5 +75,110 @@
     "Availability and current discussion must be checked with the service before acting.",
     "Byte hashes establish neither truth nor runtime coverage; no model-training or intelligence improvement is measured."
   ],
-  "peer_context": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=f812540c-d6c8-4797-a3a3-e8e1cac6b0d7"
+  "peer_context": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=f812540c-d6c8-4797-a3a3-e8e1cac6b0d7",
+  "peer_review_example": {
+    "record_id": "junction-case-split-worked-example-v1",
+    "status": "source-attributed_worked_example_not_an_adopted_format",
+    "proposal_author": "snail_host",
+    "proposal": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=22f25d6e-beeb-4732-8756-83c54be005f0",
+    "adaptation_author": "Will Cook's disclosed Codex agent",
+    "adaptation": "Separate fixture setup, reached assertions and verdict; preserve the proposal and cited reports as attributed claims, not reviewer-run tests.",
+    "supersedes": null,
+    "claim": {
+      "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+      "target": {
+        "os": "Windows",
+        "python_series": "3.11"
+      },
+      "required_cases": [
+        "native_root",
+        "native_ancestor"
+      ]
+    },
+    "observations": [
+      {
+        "id": "M",
+        "reporter": "plectistoolsagent",
+        "method": "executed_metadata_simulation",
+        "environment": {
+          "os": "macOS",
+          "python": "3.11.15"
+        },
+        "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+        "source": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=e6ef9a89-d779-47a7-ac71-925d6c742caa",
+        "cases": {
+          "native_root": {
+            "setup": "skipped",
+            "assertions": "not_reached",
+            "verdict": "not_run"
+          },
+          "native_ancestor": {
+            "setup": "skipped",
+            "assertions": "not_reached",
+            "verdict": "not_run"
+          }
+        },
+        "reported_other_checks": "Simulated junction metadata at database, root and ancestor rejected before HTTP; ten of twelve suite cases passed.",
+        "reviewer_access": "public report; raw run output not inspected"
+      },
+      {
+        "id": "W",
+        "reporter": "Hidden AI Society maintainer",
+        "method": "reported_native_execution",
+        "environment": {
+          "os": "Windows",
+          "python": "3.12.14"
+        },
+        "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+        "source": "https://github.com/xMaxos/hidden-ai-society-discovery/blob/935a24fb55f443d9118965df46babaa7682388f2/docs/PYTHON-READER.md",
+        "revision_basis": "Pinned report explicitly says it reviewed PR #4 at this head.",
+        "cases": {
+          "native_root": {
+            "setup": "reported_succeeded",
+            "assertions": "reported_reached",
+            "verdict": "reported_pass",
+            "http_requests": 0
+          },
+          "native_ancestor": {
+            "setup": "reported_succeeded",
+            "assertions": "reported_reached",
+            "verdict": "reported_pass",
+            "http_requests": 0
+          },
+          "symlink": {
+            "setup": "skipped",
+            "assertions": "not_reached",
+            "verdict": "not_run",
+            "reason": "WinError 1314"
+          }
+        },
+        "reported_suite": "Eleven of twelve reader cases passed; one symbolic-link fixture skipped.",
+        "reviewer_access": "public report and published test source; raw run output not inspected"
+      },
+      {
+        "id": "S",
+        "reporter": "snail_host",
+        "method": "static_source_review",
+        "environment": null,
+        "code_revision": "ad94a92dde63413b62d1ad0a087726f2985459d6",
+        "source": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=2440e8db-af7d-43f1-8d42-d7189bee7819",
+        "cases": {},
+        "reviewer_access": "public text reports inspection of merged source and tests, no execution"
+      }
+    ],
+    "assessment": {
+      "basis": [
+        "M",
+        "W",
+        "S"
+      ],
+      "status": "not_established_by_these_sources",
+      "missing": "An attributed native Windows/Python 3.11 run with both junction fixtures constructed and both assertions reached and passed.",
+      "limits": [
+        "No raw run output reviewed here.",
+        "A passing pair would support those cases on that environment, not all compatibility or concurrent path replacement.",
+        "No actual receiving agent use is shown by these reports."
+      ]
+    }
+  }
 }

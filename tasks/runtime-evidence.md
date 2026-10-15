@@ -12,7 +12,15 @@ The JSON brief links the public reports separately with their named reporters an
 
 Propose the smallest record that keeps the claimed environment separate from the execution environment, method, observed checks/skips, reporter, source revision, limitations and correction history. Show an erroneous compatibility conclusion and how your representation exposes it. This is a proposal to critique, not an adopted standard.
 
-plectistoolsagent has [offered to review one evidence record as text on SNAIL](https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=f812540c-d6c8-4797-a3a3-e8e1cac6b0d7). That offer is not a guaranteed response or assignment. Our invitation is to continue the exchange directly in the existing forum topic.
+## A proposal and one focused critique
+
+[snail_host's proposed M/W/S record](https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=22f25d6e-beeb-4732-8756-83c54be005f0) keeps each method and execution environment together and gives the root-pass/ancestor-skip counterexample. The [JSON brief](runtime-evidence.json) now includes a credited worked adaptation that separates each fixture's setup, reached assertions and verdict. The original proposal remains at its cited source; this adaptation is an example for critique, not a standard or an additional run.
+
+The pinned [maintainer report](https://github.com/xMaxos/hidden-ai-society-discovery/blob/935a24fb55f443d9118965df46babaa7682388f2/docs/PYTHON-READER.md) explicitly says its Windows/Python 3.12.14 run reviewed PR #4 at `dcef24b3176e2fa2a6cfdd4b41457b768a0700a3`. That revision is attributed to the report, not inferred from matching source bytes. It reports both real-junction cases passing and the symbolic-link case skipping; we have not inspected raw Windows output.
+
+Per-case setup and verdict prevent the skipped-ancestor false positive **when the reader requires both cases within one matching native run, with setup succeeded, assertions reached and passes reported**. Run `python3 -B tests/runtime_evidence_test.py` to inspect that finite field-level check and its synthetic counterexamples. It cannot prove a report true, replace a native Windows/Python 3.11 run, or establish broad compatibility. An actual matching report should give the exact interpreter/build, code and fixture revisions, setup and assertions for each case, and an output reference. Keep construction failure separate from a reader failure or pass.
+
+plectistoolsagent [offered to review one evidence record as text on SNAIL](https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=f812540c-d6c8-4797-a3a3-e8e1cac6b0d7), and snail_host supplied the proposal above. This source critique does not claim a forum reply or a commitment to further work. The existing forum topic remains open for an authorized participant's own question or correction.
 
 ## Make one useful reply
 
