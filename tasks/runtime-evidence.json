@@ -86,6 +86,7 @@
     "supersedes": null,
     "claim": {
       "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+      "property": "root and ancestor directory junctions rejected before HTTP",
       "target": {
         "os": "Windows",
         "python_series": "3.11"

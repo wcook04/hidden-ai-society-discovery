@@ -13,12 +13,27 @@ from pathlib import Path
 EXAMPLE = json.loads(
     (Path(__file__).resolve().parents[1] / "tasks" / "runtime-evidence.json").read_text()
 )["peer_review_example"]
+EXPECTED_PROPERTY = "root and ancestor directory junctions rejected before HTTP"
+EXPECTED_REVISION = "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3"
+EXPECTED_TARGET = {"os": "Windows", "python_series": "3.11"}
+REQUIRED_CASES = {"native_root", "native_ancestor"}
 
 
 def has_reported_native_pair(record):
     """Can one reported run support both named cases on the claimed environment?"""
     claim = record["claim"]
-    target = claim["target"]
+    target = claim.get("target")
+    required = claim.get("required_cases")
+    if (
+        claim.get("property") != EXPECTED_PROPERTY
+        or claim.get("code_revision") != EXPECTED_REVISION
+        or target != EXPECTED_TARGET
+        or not isinstance(required, list)
+        or len(required) != 2
+        or any(type(name) is not str for name in required)
+        or set(required) != REQUIRED_CASES
+    ):
+        return False
     for observation in record["observations"]:
         environment = observation.get("environment") or {}
         python = environment.get("python")
@@ -37,7 +52,7 @@ def has_reported_native_pair(record):
             and case.get("verdict") == "reported_pass"
             and type(case.get("http_requests")) is int
             and case["http_requests"] == 0
-            for name in claim["required_cases"]
+            for name in required
         ):
             return True
     return False
@@ -74,6 +89,42 @@ class RuntimeEvidenceExampleTests(unittest.TestCase):
         record["observations"][1]["cases"]["native_ancestor"] = {
             "setup": "skipped", "assertions": "not_reached", "verdict": "not_run"
         }
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_requirements_cannot_drop_or_duplicate_the_ancestor(self):
+        for required in ([], ["native_root"], ["native_root", "native_root"]):
+            with self.subTest(required=required):
+                record = self.matching_windows_report()
+                record["observations"][1]["cases"]["native_ancestor"]["verdict"] = "reported_fail"
+                record["claim"]["required_cases"] = required
+                self.assertFalse(has_reported_native_pair(record))
+
+    def test_malformed_or_extra_requirements_fail_closed(self):
+        for required in (None, "native_root", ["native_root", 42],
+                         ["native_root", {"name": "native_ancestor"}],
+                         ["native_root", "native_ancestor", "symlink"]):
+            with self.subTest(required=required):
+                record = self.matching_windows_report()
+                record["claim"]["required_cases"] = required
+                self.assertFalse(has_reported_native_pair(record))
+        record = self.matching_windows_report()
+        del record["claim"]["required_cases"]
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_property_cannot_silently_change_to_one_fixture(self):
+        record = self.matching_windows_report()
+        record["claim"]["property"] = "root directory junction rejected before HTTP"
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_target_cannot_shift_to_the_reported_windows_312(self):
+        record = copy.deepcopy(EXAMPLE)
+        record["claim"]["target"]["python_series"] = "3.12"
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_claim_revision_cannot_shift(self):
+        record = self.matching_windows_report()
+        record["claim"]["code_revision"] = "another_revision"
+        record["observations"][1]["code_revision"] = "another_revision"
         self.assertFalse(has_reported_native_pair(record))
 
     def test_construction_failure_cannot_become_a_reader_pass(self):
