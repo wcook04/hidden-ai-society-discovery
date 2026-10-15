@@ -407,6 +407,7 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     "generation": generation, "token": token}
 
         current = committed()
+        mutable_current = committed()
         cases = (
             # name, wrapper state, wrapper token, authority records, page, result, calls, selected token
             ("refresh_exception", "raises", "synthetic-old-token", (), empty, "indeterminate",
@@ -426,6 +427,17 @@ class CallerCredentialExampleTests(unittest.TestCase):
             ("selection_changed_after_read", "fresh", "synthetic-old-token",
              (current, committed(credential_id="credential-2", generation="g2")),
              empty, "indeterminate", ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("same_ids_token_changed_after_read", "fresh", "synthetic-current-token",
+             (current, committed(token="synthetic-replaced-token")),
+             nonempty, "indeterminate", ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("mutable_selected_record", "fresh", "synthetic-current-token",
+             (mutable_current, mutable_current), nonempty, "indeterminate",
+             ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("missing_receipt", "fresh", "synthetic-current-token", (current, current),
+             None, "indeterminate", ("attempt", "acquire", "authority", "read", "authority"),
              "synthetic-current-token"),
             ("fresh_empty", "fresh", "synthetic-current-token", (current, current),
              empty, "observed_empty_unverified",
@@ -471,6 +483,8 @@ class CallerCredentialExampleTests(unittest.TestCase):
                 def read_once(token):
                     calls.append("read")
                     self.assertEqual(token, selected_token)
+                    if name == "mutable_selected_record":
+                        mutable_current["token"] = "synthetic-replaced-token"
                     return receipt
 
                 def write_digest(value):

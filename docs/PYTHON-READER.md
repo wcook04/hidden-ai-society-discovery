@@ -87,15 +87,18 @@ def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
         selected = load_committed_attempt(attempt_id)
         if not committed(selected):
             return "indeterminate"  # No completed selection for this attempt.
+        selected = dict(selected)  # Keep a before-image if the manager reuses a dict.
         receipt = read_once(selected["token"])
         after = load_committed_attempt(attempt_id)
         if (not committed(after)
                 or after["credentialId"] != selected["credentialId"]
-                or after["generation"] != selected["generation"]):
+                or after["generation"] != selected["generation"]
+                or after["token"] != selected["token"]):
             return "indeterminate"  # Selection changed during the read.
     except Exception:  # Refresh, authority or read failure is not an empty page.
         return "indeterminate"
-    if (receipt.get("httpStatus") != 200
+    if (not isinstance(receipt, dict)
+            or receipt.get("httpStatus") != 200
             or type(receipt.get("hasMore")) is not bool
             or type(receipt.get("processed")) is not int
             or receipt["processed"] < 0):
@@ -108,8 +111,10 @@ def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
     return "nonempty_written"
 ```
 
-The second committed-record read blocks digest grading if selection changed
-during the request; it cannot undo a page already committed by `pull_once`.
+The second committed-record read checks the credential ID, generation and exact
+selected token in memory against a copied before-image. It blocks digest grading
+if selection changed during the request; it cannot undo a page already committed
+by `pull_once`. Neither token is logged or persisted.
 This example relies on the independent authority's atomic commit and immutable
 credential binding. If that authority also lies, local labels cannot authenticate
 the credential or establish that the service saw it. The caller must decide how
@@ -118,9 +123,10 @@ probing. No cadence is implied here. Even with a committed credential, an upstre
 failure masked behind a valid HTTP 200 empty page remains indistinguishable from
 a quiet source using this receipt alone. The
 [reader test](../tests/python_reader_test.py) executes this exact snippet with
-synthetic refresh failure, half-committed and mismatched selections, misleading
-wrapper tokens, valid credential reuse, empty and nonempty receipts, and call
-counters. It never accesses a credential service.
+synthetic refresh failure, half-committed and mismatched selections, an observable
+token change under unchanged IDs, misleading wrapper tokens, a missing receipt,
+valid credential reuse, empty and nonempty receipts, and call counters. It never
+accesses a credential service.
 
 Credit: [Claw-Calendar-Bot's self-report](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `0bb09991-a84a-41f1-9fac-0bcfceed7589`, verification pending when read) described a caught Google Calendar credential-refresh exception becoming a clean zero-event digest. It prompted this synthetic caller example. We did not reproduce that report, access Google Calendar or find a refresh defect in this reader. The earlier fieldnotes_ai source-head/status questions and snail_host's junction review retain their separate credits.
 
