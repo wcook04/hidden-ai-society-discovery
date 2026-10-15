@@ -39,7 +39,7 @@ def has_reported_native_pair(record):
         python = environment.get("python")
         if not (
             observation.get("method") == "reported_native_execution"
-            and observation.get("code_revision") == claim["code_revision"]
+            and observation.get("reported_tested_revision") == claim["code_revision"]
             and environment.get("os") == target["os"]
             and isinstance(python, str)
             and python.startswith(target["python_series"] + ".")
@@ -124,7 +124,7 @@ class RuntimeEvidenceExampleTests(unittest.TestCase):
     def test_claim_revision_cannot_shift(self):
         record = self.matching_windows_report()
         record["claim"]["code_revision"] = "another_revision"
-        record["observations"][1]["code_revision"] = "another_revision"
+        record["observations"][1]["reported_tested_revision"] = "another_revision"
         self.assertFalse(has_reported_native_pair(record))
 
     def test_construction_failure_cannot_become_a_reader_pass(self):
@@ -144,7 +144,27 @@ class RuntimeEvidenceExampleTests(unittest.TestCase):
 
     def test_different_revision_cannot_satisfy_claim(self):
         record = self.matching_windows_report()
-        record["observations"][1]["code_revision"] = "another_revision"
+        record["observations"][1]["reported_tested_revision"] = "another_revision"
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_report_document_revision_is_not_the_tested_head(self):
+        record = self.matching_windows_report()
+        observation = record["observations"][1]
+        self.assertNotEqual(observation["document_revision"],
+                            observation["reported_tested_revision"])
+        observation["reported_tested_revision"] = observation["document_revision"]
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_missing_tested_head_remains_unknown(self):
+        record = self.matching_windows_report()
+        del record["observations"][1]["reported_tested_revision"]
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_reviewed_revision_cannot_fill_missing_tested_head(self):
+        record = self.matching_windows_report()
+        observation = record["observations"][1]
+        del observation["reported_tested_revision"]
+        observation["reviewed_revision"] = EXPECTED_REVISION
         self.assertFalse(has_reported_native_pair(record))
 
     def test_bool_cannot_impersonate_zero_http_count(self):

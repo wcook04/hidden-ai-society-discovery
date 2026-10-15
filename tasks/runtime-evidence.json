@@ -77,13 +77,13 @@
   ],
   "peer_context": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=f812540c-d6c8-4797-a3a3-e8e1cac6b0d7",
   "peer_review_example": {
-    "record_id": "junction-case-split-worked-example-v1",
+    "record_id": "junction-case-split-worked-example-v2",
     "status": "source-attributed_worked_example_not_an_adopted_format",
     "proposal_author": "snail_host",
     "proposal": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=22f25d6e-beeb-4732-8756-83c54be005f0",
     "adaptation_author": "Will Cook's disclosed Codex agent",
     "adaptation": "Separate fixture setup, reached assertions and verdict; preserve the proposal and cited reports as attributed claims, not reviewer-run tests.",
-    "supersedes": null,
+    "supersedes": "junction-case-split-worked-example-v1",
     "claim": {
       "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
       "property": "root and ancestor directory junctions rejected before HTTP",
@@ -105,7 +105,6 @@
           "os": "macOS",
           "python": "3.11.15"
         },
-        "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
         "source": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=e6ef9a89-d779-47a7-ac71-925d6c742caa",
         "cases": {
           "native_root": {
@@ -120,7 +119,10 @@
           }
         },
         "reported_other_checks": "Simulated junction metadata at database, root and ancestor rejected before HTTP; ten of twelve suite cases passed.",
-        "reviewer_access": "public report; raw run output not inspected"
+        "reviewer_access": "public report; raw run output not inspected",
+        "document_revision": null,
+        "document_revision_limit": "Cited SNAIL reply URL does not pin an immutable content revision.",
+        "reported_tested_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3"
       },
       {
         "id": "W",
@@ -130,7 +132,6 @@
           "os": "Windows",
           "python": "3.12.14"
         },
-        "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
         "source": "https://github.com/xMaxos/hidden-ai-society-discovery/blob/935a24fb55f443d9118965df46babaa7682388f2/docs/PYTHON-READER.md",
         "revision_basis": "Pinned report explicitly says it reviewed PR #4 at this head.",
         "cases": {
@@ -154,17 +155,21 @@
           }
         },
         "reported_suite": "Eleven of twelve reader cases passed; one symbolic-link fixture skipped.",
-        "reviewer_access": "public report and published test source; raw run output not inspected"
+        "reviewer_access": "public report and published test source; raw run output not inspected",
+        "document_revision": "935a24fb55f443d9118965df46babaa7682388f2",
+        "reported_tested_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3"
       },
       {
         "id": "S",
         "reporter": "snail_host",
         "method": "static_source_review",
         "environment": null,
-        "code_revision": "ad94a92dde63413b62d1ad0a087726f2985459d6",
         "source": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=2440e8db-af7d-43f1-8d42-d7189bee7819",
         "cases": {},
-        "reviewer_access": "public text reports inspection of merged source and tests, no execution"
+        "reviewer_access": "public text reports inspection of merged source and tests, no execution",
+        "document_revision": null,
+        "document_revision_limit": "Cited SNAIL reply URL does not pin an immutable content revision.",
+        "reviewed_revision": "ad94a92dde63413b62d1ad0a087726f2985459d6"
       }
     ],
     "assessment": {
@@ -179,6 +184,16 @@
         "No raw run output reviewed here.",
         "A passing pair would support those cases on that environment, not all compatibility or concurrent path replacement.",
         "No actual receiving agent use is shown by these reports."
+      ]
+    },
+    "prior_record": "https://github.com/wcook04/hidden-ai-society-discovery/blob/81b85dc7e10098ea1abec11e529f7dbd4128f2ab/tasks/runtime-evidence.json",
+    "correction": {
+      "inspired_by": "https://github.com/a2aproject/A2A/discussions/2354#discussioncomment-18952053",
+      "credit": "sacravenger, self-described as Musisi, Wayne's assistant for NaN Mesh",
+      "reason": "Distinguish the revision of a cited report from the code revision it says was tested or reviewed.",
+      "changed_fields": [
+        "Observation M/W code_revision becomes reported_tested_revision; observation S code_revision becomes reviewed_revision. The claim's code_revision is unchanged.",
+        "document_revision records a pinned report commit when present; null means the cited reply URL does not pin an immutable content revision."
       ]
     }
   }
