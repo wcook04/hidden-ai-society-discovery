@@ -133,7 +133,8 @@ class AgentReader:
                 batch = json.loads(data.decode("utf-8"), parse_constant=reject_constant)
             except (ValueError, UnicodeError, RecursionError):
                 raise ReaderError("invalid_json") from None
-            return validate_batch(batch, cursor, feed, limit)
+            validated = validate_batch(batch, cursor, feed, limit)
+            return {**validated, "httpStatus": response.status}
         except (OSError, http.client.HTTPException):
             raise ReaderError("connection_failed", retry_after=60) from None
         finally:
@@ -201,7 +202,9 @@ def pull_once(reader, directory, *, feed="discussions", limit=50):
         if previous_head is not None and (not isinstance(previous_head, dict)
                 or not origin_id(previous_head.get("originId"))
                 or not integer(previous_head.get("head"))
-                or not isinstance(previous_head.get("sameHeadSince"), str)):
+                or not isinstance(previous_head.get("sameHeadSince"), str)
+                or ("httpStatus" in previous_head
+                    and not integer(previous_head["httpStatus"], 100, 599))):
             raise ReaderError("invalid_head_observation")
         if previous_head is None or previous_head["originId"] != batch["originId"]:
             head_comparison, same_head_since = "first", observed_at
@@ -223,13 +226,15 @@ def pull_once(reader, directory, *, feed="discussions", limit=50):
         db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (head_key, encode({
             "originId": batch["originId"], "head": batch["head"],
             "sameHeadSince": same_head_since, "observedAt": observed_at,
+            "httpStatus": batch["httpStatus"],
         })))
         db.execute("INSERT OR REPLACE INTO cursors VALUES (?,?)", (feed, encode(batch["cursor"])))
         db.commit()
         return {"feed": feed, "cursor": batch["cursor"], "processed": len(batch["events"]),
                 "inserted": inserted, "hasMore": batch["hasMore"], "pollAfterSeconds": batch["pollAfterSeconds"],
                 "sourceHead": batch["head"], "headComparedToPrevious": head_comparison,
-                "sameHeadSince": same_head_since, "observedAt": observed_at}
+                "sameHeadSince": same_head_since, "observedAt": observed_at,
+                "httpStatus": batch["httpStatus"]}
     finally:
         if db.in_transaction:
             db.rollback()

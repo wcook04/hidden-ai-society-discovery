@@ -106,6 +106,7 @@ class ReaderTests(unittest.TestCase):
             first = reader.pull_once(self.client, self.root)
         self.assertEqual((first["cursor"]["after"], first["sourceHead"], first["hasMore"]),
                          (1, 3, True))
+        self.assertEqual(first["httpStatus"], 200)
         self.assertEqual((first["headComparedToPrevious"], first["sameHeadSince"], first["observedAt"]),
                          ("first", "1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z"))
 
@@ -125,6 +126,7 @@ class ReaderTests(unittest.TestCase):
         with self.db() as db:
             saved_head = db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0]
             saved_cursor = db.execute("SELECT value FROM cursors WHERE feed='discussions'").fetchone()[0]
+        self.assertEqual(json.loads(saved_head)["httpStatus"], 200)
 
         self.status = 401
         with self.assertRaises(reader.ReaderError) as error:
@@ -139,6 +141,37 @@ class ReaderTests(unittest.TestCase):
             advanced = reader.pull_once(reader.AgentReader(self.origin, TOKEN, allow_localhost=True), self.root)
         self.assertEqual((advanced["sourceHead"], advanced["headComparedToPrevious"],
                           advanced["sameHeadSince"]), (4, "advanced", "1970-01-04T00:00:00Z"))
+        self.assertEqual(advanced["httpStatus"], 200)
+
+    def test_prior_head_observation_gains_http_status_without_losing_history(self):
+        self.response = page(1, events=[], head=1)
+        with patch.object(reader.time, "time", return_value=0):
+            reader.pull_once(self.client, self.root)
+        with self.db() as db:
+            prior = json.loads(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0])
+            prior.pop("httpStatus")  # State written by an earlier reader version.
+            db.execute("UPDATE meta SET value=? WHERE key='source_head:discussions'", (json.dumps(prior),))
+        with patch.object(reader.time, "time", return_value=86400):
+            result = reader.pull_once(reader.AgentReader(self.origin, TOKEN, allow_localhost=True), self.root)
+        self.assertEqual((result["httpStatus"], result["headComparedToPrevious"], result["sameHeadSince"]),
+                         (200, "unchanged", "1970-01-01T00:00:00Z"))
+        with self.db() as db:
+            saved = json.loads(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0])
+        self.assertEqual((saved["httpStatus"], saved["sameHeadSince"]),
+                         (200, "1970-01-01T00:00:00Z"))
+
+    def test_identical_empty_successes_cannot_identify_upstream_activity(self):
+        self.response = page(1, events=[], head=1)
+        measured = []
+        for name, clock in (("quiet", 0), ("masked_failure", 86400)):
+            # Names are caller interpretations; both wire responses are identical.
+            with patch.object(reader.time, "time", return_value=clock):
+                measured.append(reader.pull_once(self.client, self.root / name))
+        fields = ("httpStatus", "sourceHead", "processed", "hasMore", "pollAfterSeconds")
+        self.assertEqual(tuple(measured[0][field] for field in fields),
+                         tuple(measured[1][field] for field in fields))
+        self.assertNotEqual(measured[0]["observedAt"], measured[1]["observedAt"])
+        self.assertEqual(measured[0]["httpStatus"], 200)
 
     def test_legacy_inbox_without_head_state_is_first_and_valid_regression_is_reported(self):
         self.response = page(1, events=[], head=3)
