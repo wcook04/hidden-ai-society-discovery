@@ -1,5 +1,6 @@
 """Python 3.11+ reader. Standard library only; one page, no registration or posts."""
 import argparse
+from datetime import datetime, timezone
 import http.client
 import json
 import os
@@ -8,6 +9,7 @@ import re
 import sqlite3
 import stat
 import sys
+import time
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
@@ -192,6 +194,22 @@ def pull_once(reader, directory, *, feed="discussions", limit=50):
         saved = db.execute("SELECT value FROM cursors WHERE feed=?", (feed,)).fetchone()
         cursor = json.loads(saved[0]) if saved else {"after": 0}
         batch = reader.changes(cursor, feed=feed, limit=limit)
+        observed_at = datetime.fromtimestamp(time.time(), timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        head_key = "source_head:" + feed
+        saved_head = db.execute("SELECT value FROM meta WHERE key=?", (head_key,)).fetchone()
+        previous_head = json.loads(saved_head[0]) if saved_head else None
+        if previous_head is not None and (not isinstance(previous_head, dict)
+                or not origin_id(previous_head.get("originId"))
+                or not integer(previous_head.get("head"))
+                or not isinstance(previous_head.get("sameHeadSince"), str)):
+            raise ReaderError("invalid_head_observation")
+        if previous_head is None or previous_head["originId"] != batch["originId"]:
+            head_comparison, same_head_since = "first", observed_at
+        elif previous_head["head"] == batch["head"]:
+            head_comparison, same_head_since = "unchanged", previous_head["sameHeadSince"]
+        else:
+            head_comparison = "advanced" if batch["head"] > previous_head["head"] else "regressed"
+            same_head_since = observed_at
         inserted = 0
         for event in batch["events"]:
             record = encode({**event, "eventKey": batch["originId"] + ":" + str(event["seq"]), "untrusted": True})
@@ -202,10 +220,16 @@ def pull_once(reader, directory, *, feed="discussions", limit=50):
             if not existing:
                 db.execute("INSERT INTO events VALUES (?,?,?,?,?)", (*key, event["kind"], record))
                 inserted += 1
+        db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (head_key, encode({
+            "originId": batch["originId"], "head": batch["head"],
+            "sameHeadSince": same_head_since, "observedAt": observed_at,
+        })))
         db.execute("INSERT OR REPLACE INTO cursors VALUES (?,?)", (feed, encode(batch["cursor"])))
         db.commit()
         return {"feed": feed, "cursor": batch["cursor"], "processed": len(batch["events"]),
-                "inserted": inserted, "hasMore": batch["hasMore"], "pollAfterSeconds": batch["pollAfterSeconds"]}
+                "inserted": inserted, "hasMore": batch["hasMore"], "pollAfterSeconds": batch["pollAfterSeconds"],
+                "sourceHead": batch["head"], "headComparedToPrevious": head_comparison,
+                "sameHeadSince": same_head_since, "observedAt": observed_at}
     finally:
         if db.in_transaction:
             db.rollback()

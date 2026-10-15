@@ -80,6 +80,7 @@ class ReaderTests(unittest.TestCase):
         self.response = page(1, events=[], head=3)
         result = reader.pull_once(self.client, self.root, limit=2)
         self.assertEqual((result["processed"], result["hasMore"]), (0, True))
+        self.assertEqual((result["sourceHead"], result["headComparedToPrevious"]), (3, "first"))
         self.assertEqual(len(self.requests), 1)
         self.assertIn("limit=2", self.requests[-1][0])
         self.response = page(3)
@@ -90,13 +91,78 @@ class ReaderTests(unittest.TestCase):
         self.assertIn("after=1", self.requests[-1][0])
         self.assertIn("originId=" + OID, self.requests[-1][0])
         self.response = page(2, work=True)
-        reader.pull_once(restarted, self.root, feed="work")
+        work_result = reader.pull_once(restarted, self.root, feed="work")
+        self.assertEqual(work_result["headComparedToPrevious"], "first")
         self.assertTrue(self.requests[-1][0].startswith("/api/work/changes?after=0"))
         with self.db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM cursors").fetchone()[0], 2)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 2)
         self.assertTrue(all(auth == "Bearer " + TOKEN for _, auth in self.requests))
         self.assertNotIn(TOKEN.encode(), (self.root / "inbox.sqlite").read_bytes())
+
+    def test_source_head_receipts_across_invocations_and_http_401(self):
+        self.response = page(1, events=[], head=3)
+        with patch.object(reader.time, "time", return_value=0):
+            first = reader.pull_once(self.client, self.root)
+        self.assertEqual((first["cursor"]["after"], first["sourceHead"], first["hasMore"]),
+                         (1, 3, True))
+        self.assertEqual((first["headComparedToPrevious"], first["sameHeadSince"], first["observedAt"]),
+                         ("first", "1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z"))
+
+        self.response = page(3, events=[], head=3)
+        restarted = reader.AgentReader(self.origin, TOKEN, allow_localhost=True)
+        with patch.object(reader.time, "time", return_value=86400):
+            complete = reader.pull_once(restarted, self.root)
+        self.assertEqual((complete["cursor"]["after"], complete["sourceHead"], complete["hasMore"]),
+                         (3, 3, False))
+        self.assertEqual((complete["headComparedToPrevious"], complete["sameHeadSince"], complete["observedAt"]),
+                         ("unchanged", "1970-01-01T00:00:00Z", "1970-01-02T00:00:00Z"))
+
+        with patch.object(reader.time, "time", return_value=172800):
+            quiet = reader.pull_once(reader.AgentReader(self.origin, TOKEN, allow_localhost=True), self.root)
+        self.assertEqual((quiet["processed"], quiet["headComparedToPrevious"], quiet["sameHeadSince"]),
+                         (0, "unchanged", "1970-01-01T00:00:00Z"))
+        with self.db() as db:
+            saved_head = db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0]
+            saved_cursor = db.execute("SELECT value FROM cursors WHERE feed='discussions'").fetchone()[0]
+
+        self.status = 401
+        with self.assertRaises(reader.ReaderError) as error:
+            reader.pull_once(self.client, self.root)
+        self.assertEqual(error.exception.status, 401)
+        with self.db() as db:
+            self.assertEqual(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0], saved_head)
+            self.assertEqual(db.execute("SELECT value FROM cursors WHERE feed='discussions'").fetchone()[0], saved_cursor)
+
+        self.status, self.response = 200, page(4, events=[], head=4)
+        with patch.object(reader.time, "time", return_value=259200):
+            advanced = reader.pull_once(reader.AgentReader(self.origin, TOKEN, allow_localhost=True), self.root)
+        self.assertEqual((advanced["sourceHead"], advanced["headComparedToPrevious"],
+                          advanced["sameHeadSince"]), (4, "advanced", "1970-01-04T00:00:00Z"))
+
+    def test_legacy_inbox_without_head_state_is_first_and_valid_regression_is_reported(self):
+        self.response = page(1, events=[], head=3)
+        reader.pull_once(self.client, self.root)
+        with self.db() as db:
+            db.execute("DELETE FROM meta WHERE key='source_head:discussions'")
+        self.response = page(2, events=[], head=3)
+        first = reader.pull_once(self.client, self.root)
+        self.assertEqual(first["headComparedToPrevious"], "first")
+        self.response = page(2, events=[], head=2)
+        regressed = reader.pull_once(self.client, self.root)
+        self.assertEqual((regressed["sourceHead"], regressed["headComparedToPrevious"]),
+                         (2, "regressed"))
+        self.assertEqual(regressed["sameHeadSince"], regressed["observedAt"])
+
+    def test_invalid_batch_does_not_update_source_head_observation(self):
+        reader.pull_once(self.client, self.root)
+        with self.db() as db:
+            saved_head = db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0]
+        self.response = {**page(2), "hasMore": True}
+        with self.assertRaisesRegex(reader.ReaderError, "invalid_batch"):
+            reader.pull_once(self.client, self.root)
+        with self.db() as db:
+            self.assertEqual(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0], saved_head)
 
     def test_replay_deduplicates_and_conflicting_content_rolls_back(self):
         reader.pull_once(self.client, self.root)
@@ -115,6 +181,7 @@ class ReaderTests(unittest.TestCase):
     def test_checkpoint_failure_rolls_back_new_events_too(self):
         reader.pull_once(self.client, self.root)
         with self.db() as db:
+            saved_head = db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0]
             db.execute("CREATE TRIGGER fail_checkpoint BEFORE INSERT ON cursors BEGIN SELECT RAISE(ABORT,'TEST disk failure'); END")
         self.response = page(2)
         with self.assertRaises(sqlite3.Error):
@@ -122,6 +189,7 @@ class ReaderTests(unittest.TestCase):
         with self.db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 1)
             self.assertEqual(json.loads(db.execute("SELECT value FROM cursors").fetchone()[0])["after"], 1)
+            self.assertEqual(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0], saved_head)
 
     def test_origin_change_and_concurrent_writer_stop_before_network(self):
         reader.pull_once(self.client, self.root)
