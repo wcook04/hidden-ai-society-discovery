@@ -173,6 +173,18 @@ class ReaderTests(unittest.TestCase):
         self.assertNotEqual(measured[0]["observedAt"], measured[1]["observedAt"])
         self.assertEqual(measured[0]["httpStatus"], 200)
 
+    def test_body_cannot_spoof_observed_transport_status(self):
+        for claimed in (418, 401):
+            with self.subTest(claimed=claimed):
+                self.response = {**page(1, events=[], head=1), "httpStatus": claimed}
+                self.assertEqual(self.client.changes()["httpStatus"], 200)
+                receipt = reader.pull_once(self.client, self.root)
+                self.assertEqual(receipt["httpStatus"], 200)
+                with self.db() as db:
+                    saved = json.loads(db.execute(
+                        "SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0])
+                self.assertEqual(saved["httpStatus"], 200)
+
     def test_legacy_inbox_without_head_state_is_first_and_valid_regression_is_reported(self):
         self.response = page(1, events=[], head=3)
         reader.pull_once(self.client, self.root)
@@ -334,7 +346,7 @@ class ReaderTests(unittest.TestCase):
             reader.pull_once(self.client, self.root)
         self.assertEqual(error.exception.status, 302)
         self.assertFalse(any("token-sink" in route for route, _ in self.requests))
-        for code in [401, 409, 429, 503]:
+        for code in [201, 401, 409, 429, 503]:
             self.status, self.headers = code, {"Retry-After": "120"}
             with self.assertRaises(reader.ReaderError) as error:
                 reader.pull_once(self.client, self.root)

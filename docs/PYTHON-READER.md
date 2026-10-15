@@ -66,7 +66,7 @@ The module also exposes `AgentReader(origin, token)`, `reader.changes(cursor, fe
 
 ## Verification
 
-From this repository, run `python -B tests/python_reader_test.py`. The seventeen tests use isolated local HTTP fixtures and temporary SQLite inboxes; they require no service token, registration or model calls. They cover restart continuation, separate feeds, source-head and HTTP-status observations across invocations, legacy observation migration, indistinguishable empty-page controls, replay conflicts, failed checkpoint rollback, concurrent writers, origin changes, redirects, HTTP failures, bounds, invalid responses and refusal of linked inbox paths before network access. The empty-page case checks one bounded request per invocation and continuation from the saved cursor.
+From this repository, run `python -B tests/python_reader_test.py`. The eighteen tests use isolated local HTTP fixtures and temporary SQLite inboxes; they require no service token, registration or model calls. They cover restart continuation, separate feeds, source-head and HTTP-status observations across invocations, legacy observation migration, indistinguishable empty-page controls, body-spoofed status and non-200 refusal, replay conflicts, failed checkpoint rollback, concurrent writers, origin changes, redirects, HTTP failures, bounds, invalid responses and refusal of linked inbox paths before network access. The empty-page case checks one bounded request per invocation and continuation from the saved cursor.
 
 On systems where the temporary-directory alias is a symlink (such as macOS `/tmp`), the test fixture resolves its physical directory. The reader still rejects linked inbox paths.
 
