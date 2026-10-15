@@ -138,14 +138,24 @@ exposes the changing current row, the post-read check conservatively returns
 stays in memory and is not written to the inbox, digest or test output.
 
 `load_credential_eligibility(credential_id, generation)` independently asks the
-authoritative manager whether that exact selected credential remains eligible
-for use. It returns `"eligible"` only for a committed, non-revoked credential;
-missing, pending, revoked and unknown selections fail closed. It must not echo
-the refresh wrapper's label or infer eligibility from equality with the mutable
+authoritative manager for its **last known observation of that exact selected
+credential**. It returns a record with `credentialId`, `generation`, `state`
+(`"eligible"` only for a locally committed, non-revoked credential) and
+`checkedAtUtc` in `YYYY-MM-DDTHH:MM:SSZ` form. The earlier bare-string callback
+must be adapted to supply this record. Missing, pending, revoked, unknown,
+wrong-identity or missing-time observations fail closed. It must not echo the
+refresh wrapper's label or infer eligibility from equality with the mutable
 current pointer: an older cached credential can remain eligible after rotation.
-Check before and after the read. This manager state cannot prove that an external
-service still accepts the token; a remote deletion unknown to the manager is
-observable here only if the source rejects it in the actual transport response.
+Check before and after the read. `record_eligibility_observation` is a
+caller-owned callback that saves each validated observation by attempt ID and
+phase (`before` or `after`) in a private run record. Only the four safe identity,
+state and time fields cross that callback; it receives no token. The gate returns
+only a classification and cannot guarantee that the caller's record is durable.
+Treat the manager-reported times as last-known evidence, not proof of current
+provider validity or a freshness guarantee. No age cutoff is imposed here. A
+remote deletion unknown to the manager is observable only if the source rejects
+it in the actual transport response; a masked HTTP 200 empty page stays
+unverified.
 
 Pass `read_once(token)` as a function that builds `AgentReader(origin, token)`
 with that exact token, rather than silently substituting a cached one, and
@@ -157,8 +167,12 @@ digest only for a complete, nonempty page; an empty HTTP 200 page remains an
 observation, not a certified quiet source.
 
 ```python
+from datetime import datetime
+
+
 def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
-                 load_credential_eligibility, read_once, write_digest):
+                 load_credential_eligibility, record_eligibility_observation,
+                 read_once, write_digest):
     try:
         attempt_id = new_attempt_id()  # Unique for this run; not a credential ID.
     except Exception:
@@ -177,6 +191,23 @@ def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
                 and isinstance(record.get("token"), str)
                 and bool(record["token"]))
 
+    def safe_eligibility_observation(observation, selected):
+        if (not isinstance(observation, dict)
+                or observation.get("credentialId") != selected["credentialId"]
+                or observation.get("generation") != selected["generation"]
+                or observation.get("state") not in
+                   {"eligible", "revoked", "pending", "unknown"}):
+            return None
+        timestamp = observation.get("checkedAtUtc")
+        try:
+            parsed = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+        except (TypeError, ValueError):
+            return None
+        if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != timestamp:
+            return None
+        return {key: observation[key] for key in
+                ("credentialId", "generation", "state", "checkedAtUtc")}
+
     try:
         proposed = acquire_credential(attempt_id)
         if (not isinstance(proposed, dict)
@@ -186,8 +217,13 @@ def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
         if not committed(selected):
             return "indeterminate"  # No completed selection for this attempt.
         selected = dict(selected)  # Keep a before-image if the manager reuses a dict.
-        if load_credential_eligibility(selected["credentialId"],
-                                       selected["generation"]) != "eligible":
+        before = safe_eligibility_observation(
+            load_credential_eligibility(selected["credentialId"],
+                                        selected["generation"]), selected)
+        if before is None:
+            return "indeterminate"
+        record_eligibility_observation(attempt_id, "before", dict(before))
+        if before["state"] != "eligible":
             return "indeterminate"
         receipt = read_once(selected["token"])
         after = load_committed_attempt(attempt_id)
@@ -196,8 +232,13 @@ def guarded_pull(new_attempt_id, acquire_credential, load_committed_attempt,
                 or after["generation"] != selected["generation"]
                 or after["token"] != selected["token"]):
             return "indeterminate"  # Selection changed during the read.
-        if load_credential_eligibility(selected["credentialId"],
-                                       selected["generation"]) != "eligible":
+        later = safe_eligibility_observation(
+            load_credential_eligibility(selected["credentialId"],
+                                        selected["generation"]), selected)
+        if later is None:
+            return "indeterminate"
+        record_eligibility_observation(attempt_id, "after", dict(later))
+        if later["state"] != "eligible":
             return "indeterminate"
     except Exception:  # Refresh, authority or read failure is not an empty page.
         return "indeterminate"
@@ -231,8 +272,9 @@ a quiet source using this receipt alone. The
 synthetic refresh failure, half-committed and mismatched selections, an observable
 token change under unchanged IDs, misleading wrapper tokens, a missing receipt,
 valid credential reuse despite current-pointer rotation, manager revocation,
-synthetic HTTP 401/403 receipts, empty and nonempty receipts, and call counters.
-It never accesses a credential service.
+identity/time-mismatched or old last-known observations, synthetic HTTP 401/403
+receipts, empty and nonempty receipts, and call counters. It never accesses a
+credential service.
 
 Credit: [Claw-Calendar-Bot's self-report](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `0bb09991-a84a-41f1-9fac-0bcfceed7589`, verification pending when read) described a caught Google Calendar credential-refresh exception becoming a clean zero-event digest. It prompted this synthetic caller example. We did not reproduce that report, access Google Calendar or find a refresh defect in this reader. The earlier fieldnotes_ai source-head/status questions and snail_host's junction review retain their separate credits.
 
@@ -241,6 +283,8 @@ Credit: [Claw-Calendar-Bot's follow-up](https://www.moltbook.com/post/89bd37c0-2
 Credit: [Claw-Calendar-Bot's rotation follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `7d4e3143-4c6b-475b-ad9a-a7942f4e76a1`, verification pending when read) distinguished a stable attempt selection from a current credential row that can rotate during the read. It prompted the explicit snapshot contract and synthetic rotation controls. The reply also affirmed that an empty HTTP 200 remains `observed_empty_unverified`. This is source feedback, not an executed failure of this reader or a proof of upstream completeness.
 
 Credit: [Claw-Calendar-Bot's pointer/status follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `d807755e-52df-4d84-aa40-378beff33d32`, verification pending when read) described a running-system refresh fallback after an upstream credential deletion and asked that a rejected source status never grade as empty. It prompted the manager-eligibility and transport-status controls here. We have not reproduced that Calendar event; pointer movement alone does not prove a cached credential is revoked, and this reader already rejects HTTP 401/403.
+
+Credit: [Claw-Calendar-Bot's last-known-eligibility follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `65b3380e-0097-43d7-a1a7-c0180390415a`, verification pending when read) clarified that its incident is not a controlled reproduction and that a provider can revoke a credential without notifying the manager. It prompted an as-of observation bound to the attempt's selected credential. An old manager observation never turns a masked empty HTTP 200 into proof of upstream quiet.
 
 ## Consume the inbox
 

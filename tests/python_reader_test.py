@@ -471,6 +471,14 @@ class CallerCredentialExampleTests(unittest.TestCase):
              (current, current), nonempty, "indeterminate",
              ("attempt", "acquire", "authority", "read", "authority"),
              "synthetic-current-token"),
+            ("eligibility_wrong_identity", "reused", "synthetic-current-token",
+             (current,), empty, "indeterminate", ("attempt", "acquire", "authority"), None),
+            ("eligibility_missing_time", "reused", "synthetic-current-token",
+             (current,), empty, "indeterminate", ("attempt", "acquire", "authority"), None),
+            ("eligibility_noncanonical_time", "reused", "synthetic-current-token",
+             (current,), empty, "indeterminate", ("attempt", "acquire", "authority"), None),
+            ("bare_string_eligibility", "reused", "synthetic-current-token",
+             (current,), empty, "indeterminate", ("attempt", "acquire", "authority"), None),
             ("selection_changed_after_read", "fresh", "synthetic-old-token",
              (current, committed(credential_id="credential-2", generation="g2")),
              empty, "indeterminate", ("attempt", "acquire", "authority", "read", "authority"),
@@ -503,6 +511,18 @@ class CallerCredentialExampleTests(unittest.TestCase):
             ("fresh_empty", "fresh", "synthetic-current-token", (current, current),
              empty, "observed_empty_unverified",
              ("attempt", "acquire", "authority", "read", "authority"), "synthetic-current-token"),
+            ("old_last_known_empty", "reused", "synthetic-current-token", (current, current),
+             empty, "observed_empty_unverified",
+             ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
+            ("sink_mutates_copy", "fresh", "synthetic-current-token", (current, current),
+             nonempty, "nonempty_written",
+             ("attempt", "acquire", "authority", "read", "authority", "digest"),
+             "synthetic-current-token"),
+            ("sink_failure_after_read", "fresh", "synthetic-current-token", (current, current),
+             nonempty, "indeterminate",
+             ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-current-token"),
             ("misleading_old_token", "fresh", "synthetic-old-token",
              (committed(token="synthetic-new-token", generation="g2"),
               committed(token="synthetic-new-token", generation="g2")),
@@ -529,6 +549,7 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     "revoked_after_read": ("eligible", "revoked"),
                 }.get(name, ("eligible", "eligible")))
                 eligibility_calls = []
+                recorded_observations = []
 
                 def new_attempt_id():
                     calls.append("attempt")
@@ -551,7 +572,35 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     self.assertEqual((credential_id, generation),
                                      (authority_records[0]["credentialId"],
                                       authority_records[0]["generation"]))
-                    return eligibility_returns.pop(0)
+                    state = eligibility_returns.pop(0)
+                    if name == "bare_string_eligibility":
+                        return state
+                    observation = {"credentialId": credential_id, "generation": generation,
+                                   "state": state,
+                                   "checkedAtUtc": ("2024-01-01T00:00:00Z" if name == "old_last_known_empty"
+                                                    else "2026-10-15T22:00:00Z")}
+                    if name == "eligibility_wrong_identity":
+                        observation["credentialId"] = "credential-2"
+                    if name == "eligibility_missing_time":
+                        observation.pop("checkedAtUtc")
+                    if name == "eligibility_noncanonical_time":
+                        observation["checkedAtUtc"] = "2026-1-5T22:00:00Z"
+                    if name == "old_last_known_empty":
+                        observation["token"] = "synthetic-private-token"
+                        observation["private"] = {"secret": "synthetic-private-metadata"}
+                    return observation
+
+                def record_eligibility_observation(attempt_id, phase, observation):
+                    self.assertEqual(attempt_id, "attempt-1")
+                    self.assertEqual(phase, "before" if not recorded_observations else "after")
+                    self.assertEqual(set(observation),
+                                     {"credentialId", "generation", "state", "checkedAtUtc"})
+                    self.assertNotIn("token", observation)
+                    if name == "sink_failure_after_read" and phase == "after":
+                        raise OSError("synthetic private record write failed")
+                    recorded_observations.append((phase, dict(observation)))
+                    if name == "sink_mutates_copy":
+                        observation["state"] = "revoked"
 
                 def read_once(token):
                     calls.append("read")
@@ -568,16 +617,31 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     self.assertGreater(value["processed"], 0)
 
                 self.assertEqual(guarded_pull(new_attempt_id, acquire, load_committed_attempt,
-                                              load_credential_eligibility, read_once,
+                                              load_credential_eligibility,
+                                              record_eligibility_observation, read_once,
                                               write_digest), expected)
                 self.assertEqual(tuple(calls), expected_calls)
                 self.assertEqual(len(remaining), len(authority_records) - expected_calls.count("authority"))
-                one_check = {"revoked_before_read", "selection_changed_after_read",
+                one_check = {"revoked_before_read", "eligibility_wrong_identity",
+                             "eligibility_missing_time", "eligibility_noncanonical_time",
+                             "bare_string_eligibility",
+                             "selection_changed_after_read",
                              "same_ids_token_changed_after_read", "mutable_selected_record",
                              "reader_rejects_401", "reader_rejects_403"}
                 expected_eligibility_checks = (1 if name in one_check else
                                                2 if "read" in expected_calls else 0)
                 self.assertEqual(len(eligibility_calls), expected_eligibility_checks)
+                invalid_observation = {"eligibility_wrong_identity", "eligibility_missing_time",
+                                       "eligibility_noncanonical_time", "bare_string_eligibility"}
+                self.assertEqual(len(recorded_observations),
+                                 0 if name in invalid_observation else
+                                 expected_eligibility_checks - (name == "sink_failure_after_read"))
+                if name == "revoked_after_read":
+                    self.assertEqual([record["state"] for _, record in recorded_observations],
+                                     ["eligible", "revoked"])
+                if name == "old_last_known_empty":
+                    self.assertEqual([record["checkedAtUtc"] for _, record in recorded_observations],
+                                     ["2024-01-01T00:00:00Z"] * 2)
 
         # The current credential row can rotate while this attempt's committed
         # selection remains stable. Both observations still use the old token.
@@ -601,7 +665,16 @@ class CallerCredentialExampleTests(unittest.TestCase):
                 def load_credential_eligibility(credential_id, generation):
                     calls.append("eligibility")
                     self.assertEqual((credential_id, generation), ("credential-1", "g1"))
-                    return "eligible"  # The old selection remains valid despite pointer rotation.
+                    # The old selection remains locally eligible despite pointer rotation.
+                    return {"credentialId": credential_id, "generation": generation,
+                            "state": "eligible", "checkedAtUtc": "2026-10-15T22:00:00Z"}
+
+                def record_eligibility_observation(attempt_id, phase, observation):
+                    calls.append("record_" + phase)
+                    self.assertEqual(attempt_id, "attempt-1")
+                    self.assertEqual((observation["credentialId"], observation["generation"]),
+                                     ("credential-1", "g1"))
+                    self.assertNotIn("token", observation)
 
                 def read_once(token):
                     calls.append("read")
@@ -615,12 +688,14 @@ class CallerCredentialExampleTests(unittest.TestCase):
 
                 result = guarded_pull(lambda: "attempt-1", acquire,
                                       load_committed_attempt, load_credential_eligibility,
-                                      read_once, write_digest)
+                                      record_eligibility_observation, read_once,
+                                      write_digest)
                 self.assertEqual(result, expected)
                 self.assertEqual(current_row["generation"], "g3")
                 self.assertEqual(current_row["token"], "synthetic-rotated-token")
-                self.assertEqual(calls, ["acquire", "authority", "eligibility", "read",
-                                         "authority", "eligibility"]
+                self.assertEqual(calls, ["acquire", "authority", "eligibility",
+                                         "record_before", "read", "authority", "eligibility",
+                                         "record_after"]
                                  + ["digest"] * digest_count)
 
 
