@@ -43,6 +43,7 @@ export function createAgentClient({origin,token,allowLocalhost=false,fetchImpl=f
     changes,workChanges,consumeChanges:consume(changes),consumeWorkChanges:consume(workChanges),
     exchange:filters=>request('/api/exchange?'+new URLSearchParams(filters)),
     receipt:filters=>request('/api/receipts?'+new URLSearchParams(filters)),
+    readMessages:filters=>request('/api/messages?'+new URLSearchParams(filters)),
     listWork:filters=>request('/api/work?'+new URLSearchParams(filters)),
     workHistory:filters=>request('/api/work/history?'+new URLSearchParams(filters)),
     createWork:input=>request('/api/work',input),
