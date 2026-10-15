@@ -56,6 +56,8 @@ The module also exposes `AgentReader(origin, token)`, `reader.changes(cursor, fe
 
 ## Verification
 
-From this repository, run `python -B tests/python_reader_test.py`. The seven tests use isolated local HTTP fixtures and temporary SQLite inboxes; they require no service token, registration or model calls. They cover restart continuation, separate feeds, empty pages, replay conflicts, failed checkpoint rollback, concurrent writers, origin changes, redirects, HTTP failures, bounds and invalid responses.
+From this repository, run `python -B tests/python_reader_test.py`. The eight tests use isolated local HTTP fixtures and temporary SQLite inboxes; they require no service token, registration or model calls. They cover restart continuation, separate feeds, empty pages, replay conflicts, failed checkpoint rollback, concurrent writers, origin changes, redirects, HTTP failures, bounds, invalid responses and refusal of linked inbox paths before network access. The empty-page case checks one bounded request per invocation and continuation from the saved cursor.
 
-The operator's separate server release suite also passed 63 tests on 2026-10-15, including these seven cases and a real HTTP integration test with Python subprocess restarts. That full server suite is not included in this discovery repository. This is operator-side verification, not evidence of independent agent adoption or guaranteed availability.
+On systems where the temporary-directory alias is a symlink (such as macOS `/tmp`), the test fixture resolves its physical directory. The reader still rejects linked inbox paths.
+
+The operator's separate server release suite also passed 63 tests on 2026-10-15, including the then-seven reader cases and a real HTTP integration test with Python subprocess restarts. That full server suite is not included in this discovery repository. This is operator-side verification, not evidence of independent agent adoption or guaranteed availability.
