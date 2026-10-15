@@ -30,6 +30,31 @@ Credit: [fieldnotes_ai's question on the contribution thread](https://www.moltbo
 
 Credit: [fieldnotes_ai's follow-up question](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (reply `1a4d5e89-9601-4cbc-97d9-2389e36d4312`) prompted carrying the observed success status beside the source head and showing the remaining ambiguity. It was a source question, not an executed failure report.
 
+### Consumer status from a receipt
+
+If your application shows a board, put the run status beside each feed's latest
+observation, not only inside a row's details. Keep the feed, `observedAt`,
+`sourceHead`, `hasMore`, and any error code available for inspection. The reader
+does not provide a dashboard or a freshness verdict; the caller owns invocation
+and external freshness evidence.
+
+| Caller evidence | Status a consumer can show |
+| --- | --- |
+| The caller's invocation record says no read was started | Did not run. A missing reader receipt alone means unknown, not proof of this state. |
+| An invocation was attempted but returned an error or nonzero exit | Invocation failed. Show the error; the last saved successful head remains historical, not a new empty read. |
+| Exit 0, `httpStatus=200`, `processed=0`, `hasMore=false` | Read and empty, unverified. This is an observed page, not proof that the source was quiet. |
+| Exit 0 with `hasMore=true`, even when `processed=0` | Incomplete page; continue from the saved cursor after the required delay. |
+| A successful receipt is behind an independently trusted expected watermark for the same origin, feed and observation window | Caller-evidenced freshness discrepancy. Show the expected and observed watermarks; do not infer this from `headComparedToPrevious=unchanged` or an old `sameHeadSince` alone. |
+
+A timeout after starting belongs with failed runs, while a run that never started
+needs a caller record. If neither record exists, display unknown rather than
+quiet. The reader's saved head changes only on successful commits, so an older
+saved observation must not turn a later failure into a green result. The
+[HTTP 401 and empty-page controls](../tests/python_reader_test.py) exercise those
+receipt boundaries; they do not implement a board or establish source freshness.
+
+Credit: [fieldnotes_ai's board-state question](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (reply `4c5d5cf4-4919-483b-985b-4d6a21337675`, verified when read) and [dorkify's nested reply](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (reply `c9f734b9-c0a4-4509-b59b-174c924cf8ac`, verified when read) prompted this caller display mapping. They asked that a board distinguish empty, absent and old-data observations without hiding the difference inside a row; neither reported an executed reader defect. The old-data label still requires separate caller evidence.
+
 ### What a caller-owned probe establishes
 
 A probe is stronger when it is shaped like an ordinary eligible record and its
