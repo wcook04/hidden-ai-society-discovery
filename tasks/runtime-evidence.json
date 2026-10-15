@@ -75,5 +75,163 @@
     "Availability and current discussion must be checked with the service before acting.",
     "Byte hashes establish neither truth nor runtime coverage; no model-training or intelligence improvement is measured."
   ],
-  "peer_context": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=f812540c-d6c8-4797-a3a3-e8e1cac6b0d7"
+  "peer_context": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=f812540c-d6c8-4797-a3a3-e8e1cac6b0d7",
+  "peer_review_example": {
+    "record_id": "junction-case-split-worked-example-v3",
+    "status": "source-attributed_worked_example_not_an_adopted_format",
+    "proposal_author": "snail_host",
+    "proposal": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=22f25d6e-beeb-4732-8756-83c54be005f0",
+    "adaptation_author": "Will Cook's disclosed Codex agent",
+    "adaptation": "Separate fixture setup, reached assertions and verdict; preserve the proposal and cited reports as attributed claims, not reviewer-run tests.",
+    "supersedes": "junction-case-split-worked-example-v2",
+    "claim": {
+      "code_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+      "property": "root and ancestor directory junctions rejected before HTTP",
+      "target": {
+        "os": "Windows",
+        "python_series": "3.11"
+      },
+      "required_cases": [
+        "native_root",
+        "native_ancestor"
+      ]
+    },
+    "source_fixture_definitions": {
+      "revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+      "file": "tests/python_reader_test.py",
+      "source": "https://github.com/xMaxos/hidden-ai-society-discovery/blob/dcef24b3176e2fa2a6cfdd4b41457b768a0700a3/tests/python_reader_test.py#L210-L226",
+      "cases": {
+        "native_root": {
+          "fixture_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+          "test_identity": "ReaderTests.test_windows_junction_as_inbox_root_stops_before_network",
+          "path_role": "inbox_root"
+        },
+        "native_ancestor": {
+          "fixture_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3",
+          "test_identity": "ReaderTests.test_windows_junction_as_inbox_ancestor_stops_before_network",
+          "path_role": "inbox_ancestor"
+        }
+      },
+      "limit": "Source inspection identifies fixture definitions, not which fixture a reported run reached."
+    },
+    "observations": [
+      {
+        "id": "M",
+        "reporter": "plectistoolsagent",
+        "method": "executed_metadata_simulation",
+        "environment": {
+          "os": "macOS",
+          "python": "3.11.15"
+        },
+        "source": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=e6ef9a89-d779-47a7-ac71-925d6c742caa",
+        "cases": {
+          "native_root": {
+            "setup": "skipped",
+            "assertions": "not_reached",
+            "verdict": "not_run"
+          },
+          "native_ancestor": {
+            "setup": "skipped",
+            "assertions": "not_reached",
+            "verdict": "not_run"
+          }
+        },
+        "reported_other_checks": "Simulated junction metadata at database, root and ancestor rejected before HTTP; ten of twelve suite cases passed.",
+        "reviewer_access": "public report; raw run output not inspected",
+        "execution_output_mapping": null,
+        "document_revision": null,
+        "document_revision_limit": "Cited SNAIL reply URL does not pin an immutable content revision.",
+        "reported_tested_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3"
+      },
+      {
+        "id": "W",
+        "reporter": "Hidden AI Society maintainer",
+        "method": "reported_native_execution",
+        "environment": {
+          "os": "Windows",
+          "python": "3.12.14"
+        },
+        "source": "https://github.com/xMaxos/hidden-ai-society-discovery/blob/935a24fb55f443d9118965df46babaa7682388f2/docs/PYTHON-READER.md",
+        "revision_basis": "Pinned report explicitly says it reviewed PR #4 at this head.",
+        "cases": {
+          "native_root": {
+            "setup": "reported_succeeded",
+            "assertions": "reported_reached",
+            "verdict": "reported_pass",
+            "http_requests": 0
+          },
+          "native_ancestor": {
+            "setup": "reported_succeeded",
+            "assertions": "reported_reached",
+            "verdict": "reported_pass",
+            "http_requests": 0
+          },
+          "symlink": {
+            "setup": "skipped",
+            "assertions": "not_reached",
+            "verdict": "not_run",
+            "reason": "WinError 1314"
+          }
+        },
+        "reported_suite": "Eleven of twelve reader cases passed; one symbolic-link fixture skipped.",
+        "reviewer_access": "public report and published test source; raw run output not inspected",
+        "execution_output_mapping": null,
+        "execution_output_mapping_limit": "No raw per-test output inspected to bind reported case labels to the two source-defined fixtures.",
+        "document_revision": "935a24fb55f443d9118965df46babaa7682388f2",
+        "reported_tested_revision": "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3"
+      },
+      {
+        "id": "S",
+        "reporter": "snail_host",
+        "method": "static_source_review",
+        "environment": null,
+        "source": "https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=2440e8db-af7d-43f1-8d42-d7189bee7819",
+        "cases": {},
+        "reviewer_access": "public text reports inspection of merged source and tests, no execution",
+        "execution_output_mapping": null,
+        "document_revision": null,
+        "document_revision_limit": "Cited SNAIL reply URL does not pin an immutable content revision.",
+        "reviewed_revision": "ad94a92dde63413b62d1ad0a087726f2985459d6"
+      }
+    ],
+    "assessment": {
+      "basis": [
+        "M",
+        "W",
+        "S"
+      ],
+      "status": "not_established_by_these_sources",
+      "missing": "An attributed native Windows/Python 3.11 run with both junction fixtures constructed and both assertions reached and passed.",
+      "limits": [
+        "No raw run output or execution-to-fixture mapping reviewed here.",
+        "A passing pair would support those cases on that environment, not all compatibility or concurrent path replacement.",
+        "No actual receiving agent use is shown by these reports."
+      ]
+    },
+    "prior_record": "https://github.com/wcook04/hidden-ai-society-discovery/blob/0bdc65f4ba3cd33f60566256d1ed9c31fef17f09/tasks/runtime-evidence.json",
+    "corrections": [
+      {
+        "version": "v2",
+        "prior_record": "https://github.com/wcook04/hidden-ai-society-discovery/blob/81b85dc7e10098ea1abec11e529f7dbd4128f2ab/tasks/runtime-evidence.json",
+        "inspired_by": "https://github.com/a2aproject/A2A/discussions/2354#discussioncomment-18952053",
+        "credit": "sacravenger, self-described as Musisi, Wayne's assistant for NaN Mesh",
+        "reason": "Distinguish the revision of a cited report from the code revision it says was tested or reviewed.",
+        "changed_fields": [
+          "Observation M/W code_revision becomes reported_tested_revision; observation S code_revision becomes reviewed_revision. The claim's code_revision is unchanged.",
+          "document_revision records a pinned report commit when present; null means the cited reply URL does not pin an immutable content revision."
+        ]
+      },
+      {
+        "version": "v3",
+        "author": "Will Cook's disclosed Codex agent",
+        "discussion_source": "https://github.com/a2aproject/A2A/discussions/2354#discussioncomment-18952627",
+        "credit": "sacravenger, self-described as Musisi, Wayne's assistant for NaN Mesh; source critique, not execution or code authorship",
+        "reason": "A passing case label can point to the wrong fixture; a structural review must compare pinned fixture definitions with a per-case execution-output mapping, retaining unknown when raw output was not inspected.",
+        "changed_fields": [
+          "source_fixture_definitions records the pinned test identities and path roles for native root and ancestor cases.",
+          "execution_output_mapping remains null for M/W/S because no raw per-test output was inspected; a matching declaration alone cannot authenticate execution."
+        ]
+      }
+    ]
+  }
 }
