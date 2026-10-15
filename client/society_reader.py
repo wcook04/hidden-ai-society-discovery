@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import sys
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
@@ -141,6 +142,26 @@ def encode(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def linked_inbox_entry(entry, *, allow_missing=False):
+    try:
+        metadata = entry.lstat()
+    except FileNotFoundError:
+        if allow_missing:
+            return False
+        raise
+    if stat.S_ISLNK(metadata.st_mode):
+        return True
+    # lstat exposes junction tags on Windows Python 3.8+; Path.is_junction
+    # was only added in Python 3.12.
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if reparse_flag and getattr(metadata, "st_file_attributes", 0) & reparse_flag:
+        tag = getattr(metadata, "st_reparse_tag", None)
+        if tag is None:
+            return True  # A reparse point without readable type is not safe to use.
+        return tag == stat.IO_REPARSE_TAG_MOUNT_POINT
+    return False
+
+
 def pull_once(reader, directory, *, feed="discussions", limit=50):
     """Atomically store untrusted events and the matching cursor in a private SQLite inbox."""
     if feed not in FEEDS or not integer(limit, 1, 100):
@@ -149,7 +170,7 @@ def pull_once(reader, directory, *, feed="discussions", limit=50):
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     database = root / "inbox.sqlite"
     for entry in (database, root, *root.parents):
-        if entry.is_symlink() or getattr(entry, "is_junction", lambda: False)():
+        if linked_inbox_entry(entry, allow_missing=entry == database):
             raise ReaderError("linked_inbox_path")
     if not database.exists():
         try:

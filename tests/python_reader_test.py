@@ -5,8 +5,11 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import stat
+import subprocess
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -142,6 +145,84 @@ class ReaderTests(unittest.TestCase):
             raise
         with self.assertRaisesRegex(reader.ReaderError, "linked_inbox_path"):
             reader.pull_once(self.client, linked_root)
+        self.assertEqual(self.requests, [])
+
+    def test_python311_junction_metadata_blocks_each_inbox_path_before_network(self):
+        # Simulate Python 3.11's lstat fields without Path.is_junction.
+        mount_tag, reparse_flag = 0xA0000003, 0x400
+        junction = SimpleNamespace(st_mode=stat.S_IFDIR, st_file_attributes=reparse_flag,
+                                   st_reparse_tag=mount_tag)
+        real_lstat = Path.lstat
+        for target in (self.root / "inbox.sqlite", self.root, self.root.parent):
+            with self.subTest(target=target):
+                def fake_lstat(entry):
+                    return junction if entry == target else real_lstat(entry)
+
+                with patch.object(stat, "FILE_ATTRIBUTE_REPARSE_POINT", reparse_flag, create=True), \
+                     patch.object(stat, "IO_REPARSE_TAG_MOUNT_POINT", mount_tag, create=True), \
+                     patch.object(Path, "lstat", fake_lstat):
+                    with self.assertRaisesRegex(reader.ReaderError, "linked_inbox_path"):
+                        reader.pull_once(self.client, self.root)
+                self.assertEqual(self.requests, [])
+
+    def test_junction_metadata_controls_and_errors(self):
+        reparse_flag, mount_tag = 0x400, 0xA0000003
+
+        class Entry:
+            def __init__(self, result):
+                self.result = result
+
+            def lstat(self):
+                if isinstance(self.result, Exception):
+                    raise self.result
+                return self.result
+
+        def metadata(*, mode=stat.S_IFDIR, attributes=0, tag=None):
+            return SimpleNamespace(st_mode=mode, st_file_attributes=attributes,
+                                   st_reparse_tag=tag)
+
+        with patch.object(reader.stat, "FILE_ATTRIBUTE_REPARSE_POINT", reparse_flag, create=True), \
+             patch.object(reader.stat, "IO_REPARSE_TAG_MOUNT_POINT", mount_tag, create=True):
+            self.assertTrue(reader.linked_inbox_entry(Entry(metadata(mode=stat.S_IFLNK))))
+            self.assertFalse(reader.linked_inbox_entry(Entry(metadata(tag=mount_tag))))
+            self.assertFalse(reader.linked_inbox_entry(Entry(metadata(attributes=reparse_flag, tag=1))))
+            self.assertTrue(reader.linked_inbox_entry(Entry(metadata(attributes=reparse_flag, tag=mount_tag))))
+            self.assertTrue(reader.linked_inbox_entry(Entry(metadata(attributes=reparse_flag))))
+            with self.assertRaises(PermissionError):
+                reader.linked_inbox_entry(Entry(PermissionError("metadata denied")))
+            with self.assertRaises(FileNotFoundError):
+                reader.linked_inbox_entry(Entry(FileNotFoundError("missing root")))
+            self.assertFalse(reader.linked_inbox_entry(Entry(FileNotFoundError("new database")),
+                                                       allow_missing=True))
+
+    def make_windows_junction(self, target, link):
+        result = subprocess.run(["cmd", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                                capture_output=True, text=True)
+        if result.returncode:
+            self.skipTest(f"Windows junction fixture unavailable (mklink exit {result.returncode})")
+        try:
+            metadata = link.lstat()
+        except OSError as error:
+            self.skipTest(f"Windows junction fixture metadata unavailable: {type(error).__name__}")
+        if metadata.st_reparse_tag != stat.IO_REPARSE_TAG_MOUNT_POINT:
+            self.skipTest("Windows fixture did not expose a mount-point reparse tag")
+
+    @unittest.skipUnless(os.name == "nt", "requires a real Windows junction")
+    def test_windows_junction_as_inbox_root_stops_before_network(self):
+        target, link = self.root / "real", self.root / "junction"
+        target.mkdir()
+        self.make_windows_junction(target, link)
+        with self.assertRaisesRegex(reader.ReaderError, "linked_inbox_path"):
+            reader.pull_once(self.client, link)
+        self.assertEqual(self.requests, [])
+
+    @unittest.skipUnless(os.name == "nt", "requires a real Windows junction")
+    def test_windows_junction_as_inbox_ancestor_stops_before_network(self):
+        target, link = self.root / "real", self.root / "junction"
+        target.mkdir()
+        self.make_windows_junction(target, link)
+        with self.assertRaisesRegex(reader.ReaderError, "linked_inbox_path"):
+            reader.pull_once(self.client, link / "inbox")
         self.assertEqual(self.requests, [])
 
     def test_redirect_and_http_failures_do_not_follow_or_commit(self):
