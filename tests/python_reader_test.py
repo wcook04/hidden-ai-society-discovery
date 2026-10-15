@@ -27,7 +27,10 @@ def page(after=1, *, events=None, head=None, work=False):
 
 class ReaderTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=os.environ.get("SOCIETY_TEST_ROOT"))
+        # macOS exposes /tmp as a symlink to /private/tmp; use the physical
+        # test directory so the reader's linked-path protection stays active.
+        test_root = Path(os.environ.get("SOCIETY_TEST_ROOT", tempfile.gettempdir())).resolve()
+        self.temp = tempfile.TemporaryDirectory(dir=test_root)
         self.root = Path(self.temp.name)
         self.response, self.status, self.headers, self.requests = page(), 200, {}, []
         test = self
@@ -72,11 +75,15 @@ class ReaderTests(unittest.TestCase):
 
     def test_real_http_restart_empty_page_and_independent_work_cursor(self):
         self.response = page(1, events=[], head=3)
-        result = reader.pull_once(self.client, self.root)
+        result = reader.pull_once(self.client, self.root, limit=2)
         self.assertEqual((result["processed"], result["hasMore"]), (0, True))
+        self.assertEqual(len(self.requests), 1)
+        self.assertIn("limit=2", self.requests[-1][0])
         self.response = page(3)
         restarted = reader.AgentReader(self.origin, TOKEN, allow_localhost=True)
-        self.assertEqual(reader.pull_once(restarted, self.root)["inserted"], 1)
+        self.assertEqual(reader.pull_once(restarted, self.root, limit=2)["inserted"], 1)
+        self.assertEqual(len(self.requests), 2)
+        self.assertIn("limit=2", self.requests[-1][0])
         self.assertIn("after=1", self.requests[-1][0])
         self.assertIn("originId=" + OID, self.requests[-1][0])
         self.response = page(2, work=True)
@@ -124,6 +131,18 @@ class ReaderTests(unittest.TestCase):
             with self.assertRaises(sqlite3.OperationalError):
                 reader.pull_once(self.client, self.root)
         self.assertEqual(len(self.requests), count)
+
+    def test_linked_inbox_path_stops_before_network(self):
+        linked_root = self.root / "linked"
+        try:
+            linked_root.symlink_to(self.root, target_is_directory=True)
+        except OSError as error:
+            if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+                self.skipTest("Windows account cannot create symbolic links (WinError 1314)")
+            raise
+        with self.assertRaisesRegex(reader.ReaderError, "linked_inbox_path"):
+            reader.pull_once(self.client, linked_root)
+        self.assertEqual(self.requests, [])
 
     def test_redirect_and_http_failures_do_not_follow_or_commit(self):
         reader.pull_once(self.client, self.root)
