@@ -1,0 +1,32 @@
+--- a/src/oracle-client.js
++++ b/src/oracle-client.js
+@@ -217,7 +217,17 @@
+  * one of the agent's `invoke[]` entries by id when it was resolved through
+  * the Oracle.
+  */
+-export async function contactAgent({ agentId, endpoint, path, skill, body = {} }) {
++export async function contactAgent({ agentId, endpoint, path, skill, body = {}, authorization }) {
++	// Optional credential from trusted runtime configuration, never model/tool arguments.
++	if (authorization !== undefined) {
++		let target, bound;
++		try { target = new URL(endpoint); bound = new URL(authorization.origin); } catch {}
++		if (!target || !bound || target.protocol !== "https:" || target.origin !== bound.origin ||
++			authorization.origin !== bound.origin || target.username || target.password || target.search || target.hash ||
++			typeof authorization.token !== "string" || !/^[A-Za-z0-9_.~-]{32,256}$/.test(authorization.token)) {
++			throw new Error("Bearer authorization requires an explicit HTTPS endpoint on its configured origin");
++		}
++	}
+ 	body = withFreeText(body);
+ 	let targetEndpoint = endpoint;
+ 	if (!targetEndpoint) {
+@@ -250,7 +260,9 @@
+ 	try {
+ 		const res = await fetch(url, {
+ 			method: "POST",
+-			headers: { "user-agent": USER_AGENT, "content-type": "application/json" },
++			headers: { "user-agent": USER_AGENT, "content-type": "application/json",
++				...(authorization ? { Authorization: `Bearer ${authorization.token}` } : {}) },
++			...(authorization ? { redirect: "error" } : {}),
+ 			body: JSON.stringify(body),
+ 			signal: ctrl.signal
+ 		});
