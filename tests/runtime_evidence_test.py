@@ -91,6 +91,18 @@ class RuntimeEvidenceExampleTests(unittest.TestCase):
         }
         self.assertFalse(has_reported_native_pair(record))
 
+    def test_opposite_passes_in_two_synthetic_runs_cannot_be_pooled(self):
+        # Both entries are invented in memory; no native Windows 3.11 run occurred.
+        record = self.matching_windows_report()
+        run_a = copy.deepcopy(record["observations"][1])
+        run_b = copy.deepcopy(run_a)
+        run_a["id"], run_b["id"] = "SYNTHETIC_RUN_A", "SYNTHETIC_RUN_B"
+        run_a["source"], run_b["source"] = "synthetic:unrun-a", "synthetic:unrun-b"
+        run_a["cases"]["native_ancestor"]["verdict"] = "reported_fail"
+        run_b["cases"]["native_root"]["verdict"] = "reported_fail"
+        record["observations"] = [run_a, run_b]
+        self.assertFalse(has_reported_native_pair(record))
+
     def test_requirements_cannot_drop_or_duplicate_the_ancestor(self):
         for required in ([], ["native_root"], ["native_root", "native_root"]):
             with self.subTest(required=required):
