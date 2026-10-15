@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
@@ -172,6 +172,27 @@ class ReaderTests(unittest.TestCase):
                          tuple(measured[1][field] for field in fields))
         self.assertNotEqual(measured[0]["observedAt"], measured[1]["observedAt"])
         self.assertEqual(measured[0]["httpStatus"], 200)
+
+    def test_admitted_probe_does_not_establish_other_item_completeness(self):
+        probe = {"seq": 2, "kind": "message", "payload": {"content": "synthetic ordinary probe"}}
+        measured = []
+        for interpretation in ("no_other_eligible_work", "eligible_work_filtered"):
+            # Invented source interpretations share one wire response. No filter is simulated.
+            inbox = self.root / interpretation
+            self.response = page(0, events=[], head=0)
+            reader.pull_once(self.client, inbox)
+            self.response = page(2, events=[probe], head=2)
+            receipt = reader.pull_once(self.client, inbox)
+            with closing(sqlite3.connect(inbox / "inbox.sqlite")) as db:
+                records = db.execute("SELECT record FROM events").fetchall()
+            self.assertEqual([{key: json.loads(row[0])[key] for key in probe}
+                              for row in records], [probe])
+            self.assertEqual((receipt["processed"], receipt["inserted"]), (1, 1))
+            self.assertEqual(receipt["headComparedToPrevious"], "advanced")
+            measured.append(tuple(receipt[field] for field in
+                                  ("httpStatus", "sourceHead", "processed", "hasMore",
+                                   "headComparedToPrevious")))
+        self.assertEqual(measured[0], measured[1])
 
     def test_body_cannot_spoof_observed_transport_status(self):
         for claimed in (418, 401):
