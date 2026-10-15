@@ -17,10 +17,48 @@ EXPECTED_PROPERTY = "root and ancestor directory junctions rejected before HTTP"
 EXPECTED_REVISION = "dcef24b3176e2fa2a6cfdd4b41457b768a0700a3"
 EXPECTED_TARGET = {"os": "Windows", "python_series": "3.11"}
 REQUIRED_CASES = {"native_root", "native_ancestor"}
+EXPECTED_FIXTURES = {
+    "native_root": {
+        "fixture_revision": EXPECTED_REVISION,
+        "test_identity": "ReaderTests.test_windows_junction_as_inbox_root_stops_before_network",
+        "path_role": "inbox_root",
+    },
+    "native_ancestor": {
+        "fixture_revision": EXPECTED_REVISION,
+        "test_identity": "ReaderTests.test_windows_junction_as_inbox_ancestor_stops_before_network",
+        "path_role": "inbox_ancestor",
+    },
+}
+
+
+def has_declared_fixture_mapping(record, observation):
+    """Check the declared source/output join, without authenticating the output."""
+    source = record.get("source_fixture_definitions") or {}
+    if not isinstance(source, dict):
+        return False
+    if (source.get("revision") != EXPECTED_REVISION
+            or source.get("file") != "tests/python_reader_test.py"
+            or source.get("cases") != EXPECTED_FIXTURES):
+        return False
+    output = observation.get("execution_output_mapping") or {}
+    if not isinstance(output, dict):
+        return False
+    mapped_cases = output.get("cases")
+    if not isinstance(mapped_cases, dict) or set(mapped_cases) != REQUIRED_CASES:
+        return False
+    for name, expected in EXPECTED_FIXTURES.items():
+        mapped = mapped_cases.get(name)
+        if not isinstance(mapped, dict) or any(mapped.get(key) != value
+                                                   for key, value in expected.items()):
+            return False
+        reference = mapped.get("output_reference")
+        if not isinstance(reference, str) or not reference.strip():
+            return False
+    return True
 
 
 def has_reported_native_pair(record):
-    """Can one reported run support both named cases on the claimed environment?"""
+    """Check one run's declarations; this does not authenticate execution."""
     claim = record["claim"]
     target = claim.get("target")
     required = claim.get("required_cases")
@@ -46,7 +84,7 @@ def has_reported_native_pair(record):
         ):
             continue
         cases = observation.get("cases", {})
-        if all(
+        if isinstance(cases, dict) and has_declared_fixture_mapping(record, observation) and all(
             (case := cases.get(name, {})).get("setup") == "reported_succeeded"
             and case.get("assertions") == "reported_reached"
             and case.get("verdict") == "reported_pass"
@@ -66,6 +104,10 @@ class RuntimeEvidenceExampleTests(unittest.TestCase):
         synthetic["reporter"] = "invented by this local test"
         synthetic["source"] = "synthetic:in-memory-fixture-not-a-run"
         synthetic["environment"]["python"] = "3.11.15"
+        synthetic["execution_output_mapping"] = {"cases": {
+            name: {**definition, "output_reference": "synthetic:in-memory-" + name}
+            for name, definition in EXPECTED_FIXTURES.items()
+        }}
         return record
 
     def test_published_sources_do_not_establish_windows_311(self):
@@ -81,8 +123,48 @@ class RuntimeEvidenceExampleTests(unittest.TestCase):
         self.assertFalse(has_reported_native_pair(EXAMPLE))
 
     def test_matching_pair_would_qualify_only_as_a_reported_pair(self):
-        # Synthetic metadata variant, not a newly observed Windows run.
+        # Synthetic declarations, not inspected native output or a Windows run.
         self.assertTrue(has_reported_native_pair(self.matching_windows_report()))
+
+    def test_actual_reports_have_no_inspected_execution_mapping(self):
+        self.assertTrue(all(observation["execution_output_mapping"] is None
+                            for observation in EXAMPLE["observations"]))
+        self.assertFalse(has_reported_native_pair(EXAMPLE))
+
+    def test_case_label_cannot_point_to_root_fixture_twice(self):
+        record = self.matching_windows_report()
+        mapping = record["observations"][1]["execution_output_mapping"]["cases"]
+        mapping["native_ancestor"] = copy.deepcopy(mapping["native_root"])
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_case_label_cannot_point_to_metadata_fixture(self):
+        record = self.matching_windows_report()
+        mapping = record["observations"][1]["execution_output_mapping"]["cases"]
+        mapping["native_ancestor"]["test_identity"] = "ReaderTests.test_junction_metadata_controls_and_errors"
+        mapping["native_ancestor"]["path_role"] = "metadata_simulation"
+        self.assertFalse(has_reported_native_pair(record))
+
+    def test_missing_or_unpinned_output_mapping_cannot_qualify(self):
+        for change in ("missing", "malformed", "empty_reference", "wrong_revision",
+                       "wrong_test_identity", "wrong_path_role", "wrong_source_definition"):
+            with self.subTest(change=change):
+                record = self.matching_windows_report()
+                observation = record["observations"][1]
+                if change == "missing":
+                    observation["execution_output_mapping"] = None
+                elif change == "malformed":
+                    observation["execution_output_mapping"] = "not a mapping"
+                elif change == "empty_reference":
+                    observation["execution_output_mapping"]["cases"]["native_ancestor"]["output_reference"] = ""
+                elif change == "wrong_revision":
+                    observation["execution_output_mapping"]["cases"]["native_ancestor"]["fixture_revision"] = "other"
+                elif change == "wrong_test_identity":
+                    observation["execution_output_mapping"]["cases"]["native_ancestor"]["test_identity"] = "other"
+                elif change == "wrong_path_role":
+                    observation["execution_output_mapping"]["cases"]["native_ancestor"]["path_role"] = "inbox_root"
+                else:
+                    record["source_fixture_definitions"]["cases"]["native_ancestor"]["path_role"] = "inbox_root"
+                self.assertFalse(has_reported_native_pair(record))
 
     def test_root_pass_with_ancestor_skip_does_not_qualify(self):
         record = self.matching_windows_report()
