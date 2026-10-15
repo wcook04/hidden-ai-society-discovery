@@ -176,8 +176,17 @@ class ReaderTests(unittest.TestCase):
     def test_admitted_probe_does_not_establish_other_item_completeness(self):
         probe = {"seq": 2, "kind": "message", "payload": {"content": "synthetic ordinary probe"}}
         measured = []
-        for interpretation in ("no_other_eligible_work", "eligible_work_filtered"):
-            # Invented source interpretations share one wire response. No filter is simulated.
+        source_comparisons = []
+        source_scopes = (
+            ("no_other_eligible_work", "production-resource/account/principal"),
+            ("eligible_work_filtered", "production-resource/account/principal"),
+            ("cross_source_probe", "other-resource/account/principal"),
+            ("unknown_probe_source", None),
+        )
+        production_scope = "production-resource/account/principal"
+        for interpretation, probe_scope in source_scopes:
+            # Caller-owned source interpretations share one wire response.
+            # No filter, credential manager or source router is simulated.
             inbox = self.root / interpretation
             self.response = page(0, events=[], head=0)
             reader.pull_once(self.client, inbox)
@@ -192,7 +201,14 @@ class ReaderTests(unittest.TestCase):
             measured.append(tuple(receipt[field] for field in
                                   ("httpStatus", "sourceHead", "processed", "hasMore",
                                    "headComparedToPrevious")))
+            source_comparisons.append("unknown" if probe_scope is None else
+                                      "same-source" if probe_scope == production_scope else
+                                      "cross-source")
         self.assertEqual(measured[0], measured[1])
+        self.assertEqual(measured[1], measured[2])
+        self.assertEqual(measured[2], measured[3])
+        self.assertEqual(source_comparisons,
+                         ["same-source", "same-source", "cross-source", "unknown"])
 
     def test_body_cannot_spoof_observed_transport_status(self):
         for claimed in (418, 401):
@@ -448,6 +464,8 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     "generation": generation, "token": token}
 
         current = committed()
+        old_committed = committed(token="synthetic-old-token", credential_id="credential-old",
+                                  generation="g-old")
         mutable_current = committed()
         cases = (
             # name, wrapper state, wrapper token, authority records, page, result, calls, selected token
@@ -465,6 +483,15 @@ class CallerCredentialExampleTests(unittest.TestCase):
             ("wrong_attempt", "fresh", "synthetic-old-token",
              (committed(attempt_id="another-attempt"),), empty, "indeterminate",
              ("attempt", "acquire", "authority"), None),
+            # A swallowed refresh can propose an old token as fresh. Its committed
+            # attempt selection is evaluated by independent manager eligibility.
+            ("swallowed_refresh_fallback_revoked", "fresh", "synthetic-old-token",
+             (old_committed,), empty, "indeterminate",
+             ("attempt", "acquire", "authority"), None),
+            ("swallowed_refresh_fallback_valid_reuse", "fresh", "synthetic-old-token",
+             (old_committed, old_committed), empty, "observed_empty_unverified",
+             ("attempt", "acquire", "authority", "read", "authority"),
+             "synthetic-old-token"),
             ("revoked_before_read", "reused", "synthetic-current-token",
              (current,), empty, "indeterminate", ("attempt", "acquire", "authority"), None),
             ("revoked_after_read", "reused", "synthetic-current-token",
@@ -545,11 +572,13 @@ class CallerCredentialExampleTests(unittest.TestCase):
                 calls = []
                 remaining = list(authority_records)
                 eligibility_returns = list({
+                    "swallowed_refresh_fallback_revoked": ("revoked",),
                     "revoked_before_read": ("revoked",),
                     "revoked_after_read": ("eligible", "revoked"),
                 }.get(name, ("eligible", "eligible")))
                 eligibility_calls = []
                 recorded_observations = []
+                caught_refresh_failures = []
 
                 def new_attempt_id():
                     calls.append("attempt")
@@ -560,6 +589,13 @@ class CallerCredentialExampleTests(unittest.TestCase):
                     self.assertEqual(attempt_id, "attempt-1")
                     if state == "raises":
                         raise RuntimeError("synthetic late refresh failure")
+                    if name.startswith("swallowed_refresh_fallback_"):
+                        try:
+                            raise RuntimeError("synthetic refresh failed before fallback")
+                        except RuntimeError as error:
+                            caught_refresh_failures.append(str(error))
+                        # Deliberately misleading wrapper proposal; the independent
+                        # committed attempt and eligibility decide whether to read.
                     return {"state": state, "generation": "g2", "token": claimed_token}
 
                 def load_committed_attempt(attempt_id):
@@ -621,8 +657,11 @@ class CallerCredentialExampleTests(unittest.TestCase):
                                               record_eligibility_observation, read_once,
                                               write_digest), expected)
                 self.assertEqual(tuple(calls), expected_calls)
+                self.assertEqual(len(caught_refresh_failures),
+                                 1 if name.startswith("swallowed_refresh_fallback_") else 0)
                 self.assertEqual(len(remaining), len(authority_records) - expected_calls.count("authority"))
-                one_check = {"revoked_before_read", "eligibility_wrong_identity",
+                one_check = {"swallowed_refresh_fallback_revoked", "revoked_before_read",
+                             "eligibility_wrong_identity",
                              "eligibility_missing_time", "eligibility_noncanonical_time",
                              "bare_string_eligibility",
                              "selection_changed_after_read",
@@ -639,6 +678,12 @@ class CallerCredentialExampleTests(unittest.TestCase):
                 if name == "revoked_after_read":
                     self.assertEqual([record["state"] for _, record in recorded_observations],
                                      ["eligible", "revoked"])
+                if name == "swallowed_refresh_fallback_revoked":
+                    self.assertEqual([record["state"] for _, record in recorded_observations],
+                                     ["revoked"])
+                if name == "swallowed_refresh_fallback_valid_reuse":
+                    self.assertEqual([record["state"] for _, record in recorded_observations],
+                                     ["eligible", "eligible"])
                 if name == "old_last_known_empty":
                     self.assertEqual([record["checkedAtUtc"] for _, record in recorded_observations],
                                      ["2024-01-01T00:00:00Z"] * 2)

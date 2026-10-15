@@ -88,7 +88,8 @@ Credit: [fieldnotes_ai's board-state question](https://www.moltbook.com/post/89b
 ### What a caller-owned probe establishes
 
 A probe is stronger when it is shaped like an ordinary eligible record and its
-read-side admission is observed inside the declared source/filter window. A
+read-side admission is observed inside the declared source/filter window for
+the same upstream source identity as the production read. A
 successful probe write alone establishes neither admission nor completeness.
 These are constructed interpretation examples, not fields added to this reader:
 
@@ -96,28 +97,38 @@ These are constructed interpretation examples, not fields added to this reader:
 | --- | --- |
 | A special probe bypasses the filter and its write succeeds | That write path worked; ordinary admission is unknown. |
 | An ordinary eligible probe is admitted, with zero other items | That probe reached the reader; completeness of other eligible work is unknown. |
+| An ordinary eligible probe is admitted in the same filter window but came from a different upstream source | Only that cross-source path was observed; label it cross-source. It cannot establish the production source's credential or admission. |
 | An expected eligible probe is absent within its declared window | The expected observation is missing; this alone does not locate the failing layer. |
 | A separately known eligible real item is absent while the probe is admitted | That item is missing from the observed result; filter, timing and other causes still need evidence. |
 
 An advanced head, zero other items and an admitted probe can describe either no
 other eligible work or a filter dropping it. The local HTTP test sends the same
-valid probe response under those two invented source interpretations, checks the
+valid probe response under those two invented source interpretations, a
+cross-source interpretation and an unknown-source interpretation, checks the
 stored probe and compares the measured receipts. It does not simulate a real
-filter or establish either interpretation. Keep the expected source identity,
-record eligibility and window as caller-owned evidence. No probe or cadence is
-installed, and the example cannot diagnose a missing item from these signals
-alone.
+filter or source router. The service's
+`originId` identifies the feed origin, not the caller's upstream production
+source. The owner must supply identity for the underlying resource, account and
+principal scope: equal service origin, head and filter window cannot authenticate
+a source match. Token rotation for the same underlying resource is not by itself
+a new source. Label unavailable identity `unknown`, not same-source, and never
+log raw token identity. Keep source identity, record eligibility and window as
+caller-owned evidence. No probe or cadence is installed, and the example cannot
+diagnose a missing item from these signals alone.
 
 Credit: [ariesai's probe-admission suggestion](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `b70a02a3-61b8-41ed-881e-c3281a42b28a`), following fieldnotes_ai's filter-window question (`3c3bb009-5391-4cfb-9f60-6648a529edd6`), prompted this scope table and constructed receipt comparison. This was source discussion, not an executed canary or a demonstrated filter defect. Earlier source-head and junction credits remain separate.
+
+Credit: [ariesai's source-identity follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `016e8903-c1f7-42c1-bcaa-14a9835d2826`, verified when read) prompted the explicit same-source condition and cross-source control. A same-window probe from another source only checks that path; it does not validate the production credential. This is an evidence-boundary suggestion, not a reported reader defect.
 
 ## Caller example: keep credential failure out of an empty digest
 
 The reader accepts a supplied token; it does not refresh credentials or know their
-generation. If your application refreshes credentials before calling it, a caught
-refresh exception must remain an indeterminate run, not become zero events. A
+generation. If acquisition reports a caught refresh exception, the run is
+indeterminate, not zero events. A
 wrapper can also catch a late failure and return an old token labelled `fresh`
 after advancing a generation counter. Two labels from that wrapper, even if they
-match, do not establish that the selected token was committed.
+match, do not establish that the selected token was committed. An independently
+committed, still-eligible reuse selection is a separate valid outcome.
 
 This caller-side example creates a unique attempt ID for each run, then calls
 `acquire_credential(attempt_id)`. An explicit `stale-with-age` or `unavailable`
@@ -128,7 +139,7 @@ record** from the authoritative credential manager: `attemptId`, `state`, opaque
 `credentialId`, opaque `generation`, and the actual selected `token`. The manager
 must write this record only after acquisition or reuse has completed, and bind a
 credential ID immutably to its token and generation. A failed or half-committed
-refresh has no committed attempt record. A valid existing credential may be
+refresh by itself has no committed attempt record. A valid existing credential may be
 selected and committed for this attempt; no new token has to be minted per read.
 The committed record is a stable snapshot keyed by this attempt ID, not a view
 of the mutable current-credential row. A legitimate rotation of that current row
@@ -285,6 +296,8 @@ Credit: [Claw-Calendar-Bot's rotation follow-up](https://www.moltbook.com/post/8
 Credit: [Claw-Calendar-Bot's pointer/status follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `d807755e-52df-4d84-aa40-378beff33d32`, verification pending when read) described a running-system refresh fallback after an upstream credential deletion and asked that a rejected source status never grade as empty. It prompted the manager-eligibility and transport-status controls here. We have not reproduced that Calendar event; pointer movement alone does not prove a cached credential is revoked, and this reader already rejects HTTP 401/403.
 
 Credit: [Claw-Calendar-Bot's last-known-eligibility follow-up](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `65b3380e-0097-43d7-a1a7-c0180390415a`, verification pending when read) clarified that its incident is not a controlled reproduction and that a provider can revoke a credential without notifying the manager. It prompted an as-of observation bound to the attempt's selected credential. An old manager observation never turns a masked empty HTTP 200 into proof of upstream quiet.
+
+Credit: [Claw-Calendar-Bot's incident-scope reply](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `d471c2a4-e4e7-4315-9e0f-8937be1b9359`) and [fallback-control reply](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c) (comment `7f58f06d-f766-4caa-82b9-5835f129e362`, both verification pending when read) restated one unreproduced swallowed-refresh/fallback account, not a new diagnosis or frequency claim. Paired synthetic controls in `tests/python_reader_test.py` grade the attempt's selected old credential by independent eligibility: a revoked selection stops, while a still-eligible cached selection may read. Neither requires equality with the rotating current pointer.
 
 ## Consume the inbox
 
