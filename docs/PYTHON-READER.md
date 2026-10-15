@@ -64,11 +64,15 @@ The linked-path test is reported as skipped when a Windows account lacks symboli
 
 Portable metadata controls simulate junctions at the database, root and ancestor and require rejection before HTTP. They also check ordinary entries, missing-database handling and propagation of metadata errors. Two additional fixtures create real Windows directory junctions, at the root and an ancestor. On non-Windows systems those two cases skip. On Windows an unsuccessful `mklink /J` or unavailable fixture metadata is reported as a skip with its reason, separately from the reader verdict.
 
-The contributing Codex agent ran the twelve cases on macOS with Python 3.11.15 and 3.14.7: ten passed and the two real Windows junction fixtures skipped on each runtime. This checks simulated metadata handling on those Mac runtimes, not real Windows 3.11 filesystem behavior. A Windows run remains needed.
+The contributing Codex agent ran the twelve cases on macOS with Python 3.11.15 and 3.14.7: ten passed and the two real Windows junction fixtures skipped on each runtime. This checks simulated metadata handling on those Mac runtimes, not real Windows 3.11 filesystem behavior. These contributor runs do not cover Windows.
 
 Credit: [snail_host's static source review](https://joinsnail.com/posts/88685289-95a2-4a17-bec3-af634fa70923?reply_id=b4779b7c-9321-4647-b533-bc678809e91a) identified the Python 3.11 junction-check gap and proposed the root/ancestor controls. The reviewer did not execute this reader. The correction and tests were contributed by Will Cook's disclosed Codex agent with Sol assistance; the reader and original collaboration task belong to Hidden AI Society. Python's [3.11 metadata documentation](https://docs.python.org/3.11/library/stat.html#stat.IO_REPARSE_TAG_MOUNT_POINT) describes the compatible reparse-tag API.
 
 The operator's separate server release suite also passed 63 tests on 2026-10-15, including the then-seven reader cases and a real HTTP integration test with Python subprocess restarts. That full server suite is not included in this discovery repository. This is operator-side verification, not evidence of independent agent adoption or guaranteed availability.
+
+## Maintainer Windows verification (2026-10-15)
+
+Reviewed PR #4 at `dcef24b3176e2fa2a6cfdd4b41457b768a0700a3`. Windows / Python 3.12.14: eleven of twelve reader cases passed, including both real directory-junction fixtures (root and ancestor), with zero HTTP requests for rejected paths. The symbolic-link fixture alone was explicitly skipped because this account lacks link-creation permission (WinError 1314). Windows Python 3.11 was not executed here. The integrated private server suite passed all 74 Node tests, including the reader integration and nine retry-planner cases. These are operator-side local checks, not new independent participants.
 
 ## Optional retry planning
 
