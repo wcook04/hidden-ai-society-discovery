@@ -106,6 +106,8 @@ class ReaderTests(unittest.TestCase):
             first = reader.pull_once(self.client, self.root)
         self.assertEqual((first["cursor"]["after"], first["sourceHead"], first["hasMore"]),
                          (1, 3, True))
+        self.assertEqual(first["cursorBefore"], {"after": 0})
+        self.assertEqual(first["statusObservedSince"], "1970-01-01T00:00:00Z")
         self.assertEqual(first["httpStatus"], 200)
         self.assertEqual((first["headComparedToPrevious"], first["sameHeadSince"], first["observedAt"]),
                          ("first", "1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z"))
@@ -141,6 +143,8 @@ class ReaderTests(unittest.TestCase):
             advanced = reader.pull_once(reader.AgentReader(self.origin, TOKEN, allow_localhost=True), self.root)
         self.assertEqual((advanced["sourceHead"], advanced["headComparedToPrevious"],
                           advanced["sameHeadSince"]), (4, "advanced", "1970-01-04T00:00:00Z"))
+        self.assertEqual(complete["cursorBefore"]["after"], 1)
+        self.assertEqual(advanced["statusObservedSince"], first["statusObservedSince"])
         self.assertEqual(advanced["httpStatus"], 200)
 
     def test_prior_head_observation_gains_http_status_without_losing_history(self):
@@ -150,6 +154,7 @@ class ReaderTests(unittest.TestCase):
         with self.db() as db:
             prior = json.loads(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0])
             prior.pop("httpStatus")  # State written by an earlier reader version.
+            prior.pop("statusObservedSince")
             db.execute("UPDATE meta SET value=? WHERE key='source_head:discussions'", (json.dumps(prior),))
         with patch.object(reader.time, "time", return_value=86400):
             result = reader.pull_once(reader.AgentReader(self.origin, TOKEN, allow_localhost=True), self.root)
@@ -157,8 +162,29 @@ class ReaderTests(unittest.TestCase):
                          (200, "unchanged", "1970-01-01T00:00:00Z"))
         with self.db() as db:
             saved = json.loads(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0])
+        self.assertEqual(result["statusObservedSince"], "1970-01-02T00:00:00Z")
+        self.assertEqual(saved["statusObservedSince"], result["statusObservedSince"])
         self.assertEqual((saved["httpStatus"], saved["sameHeadSince"]),
                          (200, "1970-01-01T00:00:00Z"))
+
+    def test_status_capture_start_is_not_backfilled_from_legacy_status(self):
+        self.response = page(1, events=[], head=1)
+        with patch.object(reader.time, "time", return_value=0):
+            reader.pull_once(self.client, self.root)
+        with self.db() as db:
+            prior = json.loads(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0])
+            prior.pop("statusObservedSince")  # Older status-aware state has no coverage start.
+            db.execute("UPDATE meta SET value=? WHERE key='source_head:discussions'", (json.dumps(prior),))
+        with patch.object(reader.time, "time", return_value=86400):
+            migrated = reader.pull_once(self.client, self.root)
+        self.assertEqual(migrated["sameHeadSince"], "1970-01-01T00:00:00Z")
+        self.assertEqual(migrated["statusObservedSince"], "1970-01-02T00:00:00Z")
+        with patch.object(reader.time, "time", return_value=172800):
+            resumed = reader.pull_once(self.client, self.root)
+        self.assertEqual(resumed["statusObservedSince"], migrated["statusObservedSince"])
+        with self.db() as db:
+            saved = json.loads(db.execute("SELECT value FROM meta WHERE key='source_head:discussions'").fetchone()[0])
+        self.assertEqual(saved["statusObservedSince"], migrated["statusObservedSince"])
 
     def test_identical_empty_successes_cannot_identify_upstream_activity(self):
         self.response = page(1, events=[], head=1)
@@ -447,6 +473,28 @@ class ReaderTests(unittest.TestCase):
 
 
 class CallerCredentialExampleTests(unittest.TestCase):
+    def test_published_aggregation_refuses_unverified_or_mismatched_coverage(self):
+        guide = (Path(__file__).resolve().parents[1] / "docs" / "PYTHON-READER.md").read_text()
+        section = guide.split("## Caller policy: pin expectations before reading\n", 1)[1]
+        code = section.split("```python\n", 1)[1].split("\n```", 1)[0]
+        namespace = {}
+        exec(compile(code, "docs/PYTHON-READER.md", "exec"), namespace)
+        total = namespace["verified_total"]
+        a = ("origin-a", "discussions", "all", "window-1")
+        b = ("origin-a", "work", "all", "window-1")
+        verified = {"grade": "verified", "count": 2}
+        self.assertEqual(total((a, b), {a: verified, b: {"grade": "verified", "count": 0}}), 2)
+        for grade in ("observed_empty_unverified", "incomplete", "indeterminate"):
+            with self.subTest(grade=grade):
+                self.assertIsNone(total((a, b), {a: verified, b: {"grade": grade, "count": 0}}))
+        for other in (("origin-b", *b[1:]), (*b[:3], "window-2")):
+            self.assertIsNone(total((a, b), {a: verified, other: verified}))
+        self.assertIsNone(total((a, b), {a: verified}))
+        self.assertIsNone(total((), {}))
+        self.assertIsNone(total((a,), {a: None}))
+        self.assertEqual(total((a, a), {a: verified}), 2)
+        self.assertIsNone(total((a,), {a: {"grade": "verified", "count": True}}))
+
     def test_published_gate_keeps_credential_failures_out_of_digests(self):
         guide = (Path(__file__).resolve().parents[1] / "docs" / "PYTHON-READER.md").read_text()
         section = guide.split("## Caller example: keep credential failure out of an empty digest\n", 1)[1]
