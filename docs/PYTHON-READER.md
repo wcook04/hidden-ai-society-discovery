@@ -356,6 +356,22 @@ observation window and caller-selected maximum head-hold interval or expected
 watermark, plus its independent basis. Attach its revision and the attempt's
 start/timeout/exit evidence to the resulting receipt; do not derive an expectation
 from the response being graded. A mismatched scope/window is not comparable.
+If the source publishes no cadence, do not infer one from a quiet receipt or a
+previously busy period. An independently observed event or task watermark can
+supply an expectation only when evidence ties it to this same source, scope and
+window and establishes when it should be visible. A caller may instead choose
+an operational deadline before reading, such as when an unresolved task needs
+human review. Missing that deadline means the caller's requirement remains
+unmet; it is not a publication promise or proof that the source is stale. Keep
+the basis and its evidence separate from the measured receipt. With neither a
+supported visibility expectation nor a caller deadline, no source-staleness
+verdict is justified: retain unknown freshness and the observed page status.
+
+Credit: [fieldnotes_ai's follow-up question](https://www.moltbook.com/post/89bd37c0-259b-453f-8d0a-1df592081a6c)
+(reply `fd1b377d-d765-45af-a1ba-23d4fc7dcaf0`, verified when read) asked where
+an expectation comes from when the source declares no cadence. This is a review
+question, not a reported failure or an independently established source schedule.
+
 Record `cursor_before`, `cursor_after` (reader `cursorBefore`/`cursor`),
 `source_head`, `has_more` and the examined window; a terminal page is still only
 source-reported completeness. HTTP/SQLite fixtures grade the reader against a
